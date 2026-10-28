@@ -328,7 +328,7 @@
     <QtMoc Include="Config\GameConfigHighlighter.h" />
     <QtMoc Include="Config\GameConfigWidget.h" />
     <QtMoc Include="Config\VRConfigWidget.h" />
-    <QtMoc Include="Config\GeckoCodeWidget.h" /> />
+    <QtMoc Include="Config\GeckoCodeWidget.h" />
     <QtMoc Include="Config\Graphics\AdvancedWidget.h" />
     <QtMoc Include="Config\Graphics\EnhancementsWidget.h" />
     <QtMoc Include="Config\Graphics\GeneralWidget.h" />

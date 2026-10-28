@@ -56,6 +56,10 @@ static int ResolveAutoVRForcedVBIFrequencyHz()
 
 static int GetEffectiveVRForcedVBIFrequencyHz()
 {
+#ifdef ENABLE_VR
+  if (!VR::g_openxr)
+    return Config::GFX_VR_FORCED_VBI_FREQUENCY_OFF;
+#endif
   const int configured_frequency =
       Config::NormalizeVRForcedVBIFrequency(Config::Get(Config::GFX_VR_FORCED_VBI_FREQUENCY));
   if (configured_frequency == Config::GFX_VR_FORCED_VBI_FREQUENCY_AUTO)

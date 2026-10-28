@@ -386,6 +386,7 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
   }
 
 #ifdef ENABLE_VR
+  VR::g_openxr_init_failed = false;
   // OpenXR init must happen after ObjectCache, CommandBufferManager, and StateTracker
   // are ready — VKFramebuffer::Create() needs render passes from ObjectCache, and
   // VKTexture needs CommandBufferManager for deferred destruction.
@@ -399,6 +400,10 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     if (!openxr->Initialize())
     {
       WARN_LOG_FMT(VIDEO, "OpenXR initialization failed; continuing without VR.");
+      VR::g_openxr_init_failed = true;
+      g_Config.Refresh();
+      g_Config.VerifyValidity();
+      UpdateActiveConfig();
     }
     else
     {
@@ -449,6 +454,7 @@ void VideoBackend::Shutdown()
   // Both must happen before g_vulkan_context is destroyed.
   Vulkan::g_openxr_vk.reset();
   VR::g_openxr.reset();
+  VR::g_openxr_init_failed = false;
 #endif
 
   if (g_object_cache)

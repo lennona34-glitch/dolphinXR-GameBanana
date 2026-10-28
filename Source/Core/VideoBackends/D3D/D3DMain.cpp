@@ -153,6 +153,9 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     return false;
 
   FillBackendInfo();
+#ifdef ENABLE_VR
+  VR::g_openxr_init_failed = false;
+#endif
   UpdateActiveConfig();
 
 #ifdef ENABLE_VR
@@ -166,6 +169,10 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     if (!openxr->Initialize())
     {
       WARN_LOG_FMT(VIDEO, "OpenXR initialization failed; continuing without VR.");
+      VR::g_openxr_init_failed = true;
+      g_Config.Refresh();
+      g_Config.VerifyValidity();
+      UpdateActiveConfig();
     }
     else
     {
@@ -201,6 +208,7 @@ void VideoBackend::Shutdown()
   // Both must happen before D3D::Destroy() to avoid "Unreleased references" warnings.
   DX11::g_openxr_d3d.reset();
   VR::g_openxr.reset();
+  VR::g_openxr_init_failed = false;
 #endif
   ShutdownShared();
   D3D::Destroy();

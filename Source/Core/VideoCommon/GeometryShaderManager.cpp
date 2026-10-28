@@ -502,10 +502,14 @@ void GeometryShaderManager::SetConstants(PrimitiveType prim)
 
         }
 
-        // Per-draw VR stereo override (screen/fullscreen handling from shader overrides)
+        // Per-draw VR stereo override (screen/fullscreen handling from shader overrides).
+        // Only apply when an OpenXR session is actively running so that flat 2D rendering
+        // never inherits a negative stereo override (which would multiply vertices by zeroed
+        // vr_screen/eye_projection constants).
         if (!std::isnan(vr_stereo_override))
         {
-          constants.stereoparams[3] = vr_stereo_override;
+          if (VR::g_openxr && VR::g_openxr->IsSessionRunning())
+            constants.stereoparams[3] = vr_stereo_override;
           vr_stereo_override = std::numeric_limits<float>::quiet_NaN();
         }
 

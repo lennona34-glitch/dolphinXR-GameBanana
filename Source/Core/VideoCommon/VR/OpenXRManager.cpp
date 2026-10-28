@@ -56,6 +56,7 @@
 namespace VR
 {
 std::unique_ptr<OpenXRManager> g_openxr;
+bool g_openxr_init_failed = false;
 
 namespace
 {

@@ -249,6 +249,7 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
   }
 
 #ifdef ENABLE_VR
+  VR::g_openxr_init_failed = false;
   // OpenXR init must run after InitializeShared(): creating the eye-swapchain wrappers
   // goes through OGLFramebuffer::Create() / ~OGLTexture(), which dereference the g_gfx
   // global (null until InitializeShared assigns it).
@@ -258,6 +259,10 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     if (!openxr->Initialize(GetOGLGfx()->GetMainGLContext()))
     {
       WARN_LOG_FMT(VIDEO, "OpenXR initialization failed; continuing without VR.");
+      VR::g_openxr_init_failed = true;
+      g_Config.Refresh();
+      g_Config.VerifyValidity();
+      UpdateActiveConfig();
     }
     else
     {
@@ -277,6 +282,7 @@ void VideoBackend::Shutdown()
   // swapchains/session/instance), then a defensive g_openxr reset.
   g_openxr_gl.reset();
   VR::g_openxr.reset();
+  VR::g_openxr_init_failed = false;
 #endif
   ShutdownShared();
 

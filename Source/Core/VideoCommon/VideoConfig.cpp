@@ -33,6 +33,9 @@
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/XFMemory.h"
+#ifdef ENABLE_VR
+#include "VideoCommon/VR/OpenXRManager.h"
+#endif
 
 VideoConfig g_Config;
 VideoConfig g_ActiveConfig;
@@ -164,7 +167,11 @@ void VideoConfig::Refresh()
   color_correction.fHDRPaperWhiteNits = Config::Get(Config::GFX_CC_HDR_PAPER_WHITE_NITS);
 
   stereo_mode = Config::Get(Config::GFX_STEREO_MODE);
-  const bool vr_openxr_enabled = Config::Get(Config::GFX_VR_ENABLE_OPENXR);
+  bool vr_openxr_enabled = Config::Get(Config::GFX_VR_ENABLE_OPENXR);
+#ifdef ENABLE_VR
+  if (VR::g_openxr_init_failed)
+    vr_openxr_enabled = false;
+#endif
   vr_flat_screen = Config::Get(Config::GFX_VR_FLAT_SCREEN);
   if (vr_openxr_enabled)
   {

@@ -155,6 +155,7 @@ private:
   std::vector<ModItem> m_mods;
 
   // Installed Tab Widgets
+  QCheckBox* m_chk_enable_vr = nullptr;
   QCheckBox* m_chk_hires_textures = nullptr;
   QCheckBox* m_chk_cache_textures = nullptr;
   QCheckBox* m_chk_graphics_mods = nullptr;

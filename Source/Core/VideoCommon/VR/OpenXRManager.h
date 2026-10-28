@@ -665,6 +665,9 @@ private:
 
 // Global instance — created by the backend during VideoBackend::Initialize().
 extern std::unique_ptr<OpenXRManager> g_openxr;
+// Set to true when OpenXR initialization fails during the current session so that
+// VideoConfig::Refresh() falls back cleanly to flat 2D rendering instead of stereo VR.
+extern bool g_openxr_init_failed;
 
 }  // namespace VR
 

@@ -264,24 +264,6 @@ std::vector<u8> FetchUrlBytes(Common::HttpRequest& http, const std::string& url,
   if (resp && !resp->empty() && http.GetLastResponseCode() >= 200)
     return *resp;
 
-  // Fallback to system curl.exe if libcurl/Schannel fails due to local TLS/CRL/proxy settings
-  QProcess proc;
-  QStringList args;
-  args << QStringLiteral("-s") << QStringLiteral("-L") << QStringLiteral("-k")
-       << QStringLiteral("--max-time") << QStringLiteral("25") << QStringLiteral("-A")
-       << QStringLiteral("DolphinXR-GameBanana/0.4") << QString::fromStdString(url);
-  proc.start(QStringLiteral("curl.exe"), args);
-  if (proc.waitForFinished(28000) && proc.exitStatus() == QProcess::NormalExit &&
-      proc.exitCode() == 0)
-  {
-    const QByteArray out = proc.readAllStandardOutput();
-    if (!out.isEmpty())
-    {
-      return std::vector<u8>(reinterpret_cast<const u8*>(out.constData()),
-                             reinterpret_cast<const u8*>(out.constData()) + out.size());
-    }
-  }
-
   if (resp && !resp->empty())
     return *resp;
   return {};
@@ -366,37 +348,6 @@ void GameBananaDialog::SelectGameByGameID(const std::string& game_id, const std:
       {
         matched_combo_index = i;
         break;
-      }
-    }
-  }
-
-  // If the game is not in the curated list, try resolving its GameBanana hub ID via NameMatch
-  if (matched_combo_index < 0 && !game_title.empty())
-  {
-    Common::HttpRequest http(std::chrono::milliseconds{4000});
-    http.FollowRedirects(5);
-    const std::string match_url =
-        "https://gamebanana.com/apiv11/Util/Game/NameMatch?_sName=" +
-        http.EscapeComponent(game_title);
-    const std::vector<u8> bytes = FetchUrlBytes(http, match_url);
-    if (!bytes.empty())
-    {
-      const QJsonDocument doc = QJsonDocument::fromJson(
-          QByteArray(reinterpret_cast<const char*>(bytes.data()),
-                     static_cast<qsizetype>(bytes.size())));
-      if (doc.isArray() && !doc.array().isEmpty())
-      {
-        const QJsonObject first_game = doc.array().at(0).toObject();
-        const int resolved_gb_id = first_game.value(QStringLiteral("_idRow")).toInt();
-        const QString resolved_name = first_game.value(QStringLiteral("_sName")).toString();
-        if (resolved_gb_id > 0 && !resolved_name.isEmpty())
-        {
-          const QSignalBlocker blocker(m_game_combo);
-          m_game_combo->addItem(resolved_name, resolved_gb_id);
-          matched_combo_index = m_game_combo->count() - 1;
-          m_game_combo->setItemData(matched_combo_index, QString::fromStdString(game_id),
-                                    Qt::UserRole + 1);
-        }
       }
     }
   }
@@ -595,8 +546,15 @@ QWidget* GameBananaDialog::CreateInstalledTab()
   auto* page = new QWidget(this);
   auto* layout = new QVBoxLayout(page);
 
-  auto* toggles_group = new QGroupBox(tr("Dolphin Graphics & Texture Pack Settings"), page);
+  auto* toggles_group = new QGroupBox(tr("Dolphin Graphics, VR & Texture Pack Settings"), page);
   auto* toggles_layout = new QHBoxLayout(toggles_group);
+
+  m_chk_enable_vr = new QCheckBox(tr("Enable VR Headset (OpenXR)"), page);
+  m_chk_enable_vr->setToolTip(
+      tr("When unchecked, DolphinXR runs in standard flat 2D desktop mode without initializing "
+         "OpenXR or applying VR-only HUD/screen overrides."));
+  m_chk_enable_vr->setChecked(Config::Get(Config::GFX_VR_ENABLE_OPENXR));
+  toggles_layout->addWidget(m_chk_enable_vr);
 
   m_chk_hires_textures = new QCheckBox(tr("Load Custom Textures (GFX_HIRES_TEXTURES)"), page);
   m_chk_hires_textures->setChecked(Config::Get(Config::GFX_HIRES_TEXTURES));
@@ -632,7 +590,7 @@ QWidget* GameBananaDialog::CreateInstalledTab()
   auto* btn_row = new QHBoxLayout();
   m_btn_refresh_installed = new NonDefaultQPushButton(tr("Refresh List"), page);
   m_btn_toggle_installed = new NonDefaultQPushButton(tr("Toggle Enable / Disable"), page);
-  m_btn_import_zip = new NonDefaultQPushButton(tr("Import Local Mod (.zip)..."), page);
+  m_btn_import_zip = new NonDefaultQPushButton(tr("Import Local Mod (.zip / .7z / .rar)..."), page);
   m_btn_open_mod_dir = new NonDefaultQPushButton(tr("Open Selected Folder"), page);
   m_btn_open_textures_dir = new NonDefaultQPushButton(tr("Open Load/Textures Folder"), page);
   m_btn_delete_mod = new NonDefaultQPushButton(tr("Uninstall / Delete Mod"), page);
@@ -807,17 +765,25 @@ void GameBananaDialog::ConnectWidgets()
   connect(m_open_browser_btn, &QPushButton::clicked, this, &GameBananaDialog::OnOpenInBrowser);
 
   // Installed Tab
+  connect(m_chk_enable_vr, &QCheckBox::toggled, this, [](bool checked) {
+    Config::SetBaseOrCurrent(Config::GFX_VR_ENABLE_OPENXR, checked);
+    Config::Save();
+    Config::OnConfigChanged();
+  });
   connect(m_chk_hires_textures, &QCheckBox::toggled, this, [](bool checked) {
     Config::SetBaseOrCurrent(Config::GFX_HIRES_TEXTURES, checked);
     Config::Save();
+    Config::OnConfigChanged();
   });
   connect(m_chk_cache_textures, &QCheckBox::toggled, this, [](bool checked) {
     Config::SetBaseOrCurrent(Config::GFX_CACHE_HIRES_TEXTURES, checked);
     Config::Save();
+    Config::OnConfigChanged();
   });
   connect(m_chk_graphics_mods, &QCheckBox::toggled, this, [](bool checked) {
     Config::SetBaseOrCurrent(Config::GFX_MODS_ENABLE, checked);
     Config::Save();
+    Config::OnConfigChanged();
   });
 
   connect(m_btn_refresh_installed, &QPushButton::clicked, this,
@@ -1458,11 +1424,138 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
 {
   const QString qpath = QString::fromStdString(archive_path);
   const std::string effective_game_id = target_game_id.empty() ? "GLOBAL" : target_game_id;
+  const std::string sanitized_mod = SanitizeFolderName(mod_name);
 
-  if (!qpath.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive))
+  // Extract the archive into a temporary staging folder first so we can support .zip, .7z, .rar,
+  // .tar.gz, etc. and inspect the extracted file tree accurately.
+  const std::string staging_dir =
+      File::GetUserPath(D_LOAD_IDX) + "GameBananaStaging/" + sanitized_mod + "/";
+  std::error_code ec;
+  std::filesystem::remove_all(staging_dir, ec);
+  File::CreateFullPath(staging_dir);
+  Common::ScopeGuard staging_guard{[&] {
+    std::error_code cleanup_ec;
+    std::filesystem::remove_all(staging_dir, cleanup_ec);
+  }};
+
+  int extracted_files = 0;
+
+  if (qpath.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive))
   {
-    const std::string dest_dir = File::GetUserPath(D_LOAD_IDX) + "GameBananaMods/" +
-                                 effective_game_id + "/" + SanitizeFolderName(mod_name) + "/";
+    void* zip_reader = mz_zip_reader_create();
+    if (zip_reader)
+    {
+      Common::ScopeGuard zip_guard{[&] { mz_zip_reader_delete(&zip_reader); }};
+      if (mz_zip_reader_open_file(zip_reader, archive_path.c_str()) == MZ_OK)
+      {
+        bool has_resource_manifest = false;
+        bool has_textures_dir = false;
+
+        if (mz_zip_reader_goto_first_entry(zip_reader) == MZ_OK)
+        {
+          do
+          {
+            mz_zip_file* info = nullptr;
+            if (mz_zip_reader_entry_get_info(zip_reader, &info) != MZ_OK || !info ||
+                !info->filename)
+              continue;
+
+            std::string rel_path(info->filename);
+            std::ranges::replace(rel_path, '\\', '/');
+            if (rel_path.empty() || rel_path.find("..") != std::string::npos)
+              continue;
+            while (!rel_path.empty() && rel_path.front() == '/')
+              rel_path.erase(rel_path.begin());
+
+            std::string lower = rel_path;
+            Common::ToLower(&lower);
+            if (lower == "manifest.json")
+              has_resource_manifest = true;
+            if (lower.starts_with("textures/"))
+              has_textures_dir = true;
+
+            const std::string out_path = staging_dir + rel_path;
+            if (mz_zip_reader_entry_is_dir(zip_reader) == MZ_OK || rel_path.ends_with('/'))
+            {
+              File::CreateFullPath(out_path);
+              continue;
+            }
+
+            std::string parent_dir;
+            if (SplitPath(out_path, &parent_dir, nullptr, nullptr))
+              File::CreateFullPath(parent_dir);
+
+            const size_t uncompressed_size = static_cast<size_t>(info->uncompressed_size);
+            std::vector<u8> buffer(uncompressed_size);
+            if (uncompressed_size > 0 &&
+                !Common::ReadFileFromZip(zip_reader, buffer.data(), uncompressed_size))
+            {
+              continue;
+            }
+
+            File::IOFile out(out_path, "wb");
+            if (out &&
+                (uncompressed_size == 0 || out.WriteBytes(buffer.data(), uncompressed_size)))
+            {
+              ++extracted_files;
+            }
+          } while (mz_zip_reader_goto_next_entry(zip_reader) == MZ_OK);
+        }
+
+        // Official Dolphin Resource Pack (manifest.json + textures/)
+        if (has_resource_manifest && has_textures_dir)
+        {
+          const std::string rp_dir = File::GetUserPath(D_RESOURCEPACK_IDX);
+          File::CreateFullPath(rp_dir);
+          const std::string dest_zip = rp_dir + sanitized_mod + ".zip";
+          File::Copy(archive_path, dest_zip);
+
+          ResourcePack::ResourcePack* pack = ResourcePack::Add(dest_zip);
+          if (pack && pack->Install(File::GetUserPath(D_LOAD_IDX)))
+          {
+            Config::SetBaseOrCurrent(Config::GFX_HIRES_TEXTURES, true);
+            Config::Save();
+            Config::OnConfigChanged();
+            m_chk_hires_textures->setChecked(true);
+            if (out_summary)
+            {
+              *out_summary =
+                  tr("Installed Dolphin Resource Pack '%1' to:\n%2\n\nCustom Textures have "
+                     "been enabled automatically.")
+                      .arg(QString::fromStdString(mod_name), QString::fromStdString(dest_zip));
+            }
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback / non-ZIP extraction (.7z, .rar, .tar.gz, etc.) using Windows' built-in bsdtar (tar.exe)
+  if (extracted_files == 0)
+  {
+    QProcess tar_proc;
+    QStringList args;
+    args << QStringLiteral("-xf") << qpath << QStringLiteral("-C")
+         << QString::fromStdString(staging_dir);
+    tar_proc.start(QStringLiteral("tar.exe"), args);
+    if (tar_proc.waitForFinished(20000))
+    {
+      for (const auto& entry : std::filesystem::recursive_directory_iterator(staging_dir, ec))
+      {
+        if (entry.is_regular_file(ec))
+          ++extracted_files;
+      }
+    }
+  }
+
+  // If the archive could not be extracted by either minizip or tar.exe (e.g. RAR5 or raw file),
+  // copy the file directly into Load/GameBananaMods/<GameID>/<ModName>/
+  if (extracted_files == 0)
+  {
+    const std::string dest_dir =
+        File::GetUserPath(D_LOAD_IDX) + "GameBananaMods/" + effective_game_id + "/" +
+        sanitized_mod + "/";
     File::CreateFullPath(dest_dir);
     const std::string filename = QFileInfo(qpath).fileName().toStdString();
     const std::string dest_file = dest_dir + filename;
@@ -1471,109 +1564,85 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
     if (out_summary)
     {
       *out_summary =
-          tr("Saved archive '%1' to:\n%2\n\n(Note: .7z / .rar archives can be extracted there or "
-             "opened via 'Installed Mods & Texture Packs'.)")
+          tr("Saved '%1' to:\n%2\n\n(This archive format requires an external tool such as 7-Zip "
+             "or WinRAR to unpack.)")
               .arg(QString::fromStdString(filename), QString::fromStdString(dest_dir));
     }
     return true;
   }
 
-  void* zip_reader = mz_zip_reader_create();
-  if (!zip_reader)
-  {
-    if (out_summary)
-      *out_summary = tr("Failed to initialize ZIP reader.");
-    return false;
-  }
-  Common::ScopeGuard zip_guard{[&] { mz_zip_reader_delete(&zip_reader); }};
-
-  if (mz_zip_reader_open_file(zip_reader, archive_path.c_str()) != MZ_OK)
-  {
-    if (out_summary)
-      *out_summary = tr("Could not open ZIP archive: %1").arg(qpath);
-    return false;
-  }
-
-  bool has_resource_manifest = false;
-  bool has_textures_dir = false;
+  // Inspect the extracted files in staging_dir
   bool has_graphics_mod_metadata = false;
   bool has_riivolution_xml = false;
-  bool has_custom_textures = false;
   bool starts_with_gameid_folder = false;
+  int texture_file_count = 0;
+  int tex1_named_count = 0;
+  std::vector<std::string> gci_save_files;
+  std::vector<std::string> rom_patch_files;
 
-  if (mz_zip_reader_goto_first_entry(zip_reader) == MZ_OK)
+  const std::filesystem::path staging_root(staging_dir);
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(staging_root, ec))
   {
-    do
+    if (!entry.is_regular_file(ec))
+      continue;
+
+    const std::filesystem::path rel = std::filesystem::relative(entry.path(), staging_root, ec);
+    std::string rel_str = rel.generic_string();
+    std::string lower = rel_str;
+    Common::ToLower(&lower);
+    std::string fname_lower = entry.path().filename().string();
+    Common::ToLower(&fname_lower);
+
+    if (fname_lower == "metadata.json")
+      has_graphics_mod_metadata = true;
+    if (lower.starts_with("riivolution/") ||
+        (lower.find("riivolution/") != std::string::npos && fname_lower.ends_with(".xml")))
     {
-      mz_zip_file* info = nullptr;
-      if (mz_zip_reader_entry_get_info(zip_reader, &info) != MZ_OK || !info || !info->filename)
-        continue;
-
-      std::string entry_name(info->filename);
-      std::ranges::replace(entry_name, '\\', '/');
-      std::string lower = entry_name;
-      Common::ToLower(&lower);
-
-      if (lower == "manifest.json")
-        has_resource_manifest = true;
-      if (lower.starts_with("textures/"))
-        has_textures_dir = true;
-      if (lower == "metadata.json" || lower.ends_with("/metadata.json"))
-        has_graphics_mod_metadata = true;
-      if (lower.starts_with("riivolution/") ||
-          (lower.find("riivolution/") != std::string::npos && lower.ends_with(".xml")))
-      {
-        has_riivolution_xml = true;
-      }
-      if (lower.ends_with(".png") || lower.ends_with(".dds"))
-      {
-        has_custom_textures = true;
-        const size_t slash = entry_name.find('/');
-        if (slash != std::string::npos)
-        {
-          const std::string first_seg = entry_name.substr(0, slash);
-          if (LooksLikeGameIDFolder(first_seg))
-            starts_with_gameid_folder = true;
-        }
-      }
-    } while (mz_zip_reader_goto_next_entry(zip_reader) == MZ_OK);
-  }
-
-  // Case 1: Official Dolphin Resource Pack (manifest.json + textures/)
-  if (has_resource_manifest && has_textures_dir)
-  {
-    const std::string rp_dir = File::GetUserPath(D_RESOURCEPACK_IDX);
-    File::CreateFullPath(rp_dir);
-    const std::string dest_zip = rp_dir + SanitizeFolderName(mod_name) + ".zip";
-    File::Copy(archive_path, dest_zip);
-
-    ResourcePack::ResourcePack* pack = ResourcePack::Add(dest_zip);
-    if (pack && pack->Install(File::GetUserPath(D_LOAD_IDX)))
+      has_riivolution_xml = true;
+    }
+    if (fname_lower.ends_with(".gci") || fname_lower.ends_with(".gcs") ||
+        fname_lower.ends_with(".sav"))
     {
-      Config::SetBaseOrCurrent(Config::GFX_HIRES_TEXTURES, true);
-      Config::Save();
-      m_chk_hires_textures->setChecked(true);
-      if (out_summary)
+      gci_save_files.push_back(entry.path().filename().string());
+    }
+    if (fname_lower.ends_with(".xdelta") || fname_lower.ends_with(".bps") ||
+        fname_lower.ends_with(".ips") || fname_lower.ends_with(".ppf") ||
+        fname_lower.ends_with(".pch"))
+    {
+      rom_patch_files.push_back(entry.path().filename().string());
+    }
+    if (fname_lower.ends_with(".png") || fname_lower.ends_with(".dds"))
+    {
+      ++texture_file_count;
+      if (fname_lower.starts_with("tex1_"))
+        ++tex1_named_count;
+
+      const size_t slash = rel_str.find('/');
+      if (slash != std::string::npos)
       {
-        *out_summary = tr("Installed Dolphin Resource Pack '%1' to:\n%2\n\nCustom Textures have "
-                          "been enabled automatically.")
-                           .arg(QString::fromStdString(mod_name), QString::fromStdString(dest_zip));
+        const std::string first_seg = rel_str.substr(0, slash);
+        if (LooksLikeGameIDFolder(first_seg))
+          starts_with_gameid_folder = true;
       }
-      return true;
     }
   }
 
-  // Determine destination base directory for extraction
+  // Treat as a Custom Texture Pack if it contains tex1_* textures, or if it contains .png/.dds
+  // files and isn't primarily a ROM patch (.xdelta) or memory card save (.gci) with a preview image
+  const bool has_custom_textures =
+      (tex1_named_count > 0) ||
+      (texture_file_count > 0 && gci_save_files.empty() && rom_patch_files.empty());
+
   std::string base_extract_dir;
   QString install_kind;
 
   if (has_graphics_mod_metadata)
   {
-    base_extract_dir =
-        File::GetUserPath(D_GRAPHICSMOD_IDX) + SanitizeFolderName(mod_name) + "/";
+    base_extract_dir = File::GetUserPath(D_GRAPHICSMOD_IDX) + sanitized_mod + "/";
     install_kind = tr("Graphics Mod");
     Config::SetBaseOrCurrent(Config::GFX_MODS_ENABLE, true);
     Config::Save();
+    Config::OnConfigChanged();
     m_chk_graphics_mods->setChecked(true);
   }
   else if (has_riivolution_xml)
@@ -1589,73 +1658,57 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
     }
     else
     {
-      const std::string tex_folder =
-          !target_game_id.empty() ? target_game_id : SanitizeFolderName(mod_name);
+      const std::string tex_folder = !target_game_id.empty() ? target_game_id : sanitized_mod;
       base_extract_dir = File::GetUserPath(D_HIRESTEXTURES_IDX) + tex_folder + "/";
     }
-    install_kind = tr("Custom HD Texture Pack");
+    install_kind = tr("Custom HD Texture Pack (%1 textures)").arg(texture_file_count);
     Config::SetBaseOrCurrent(Config::GFX_HIRES_TEXTURES, true);
     Config::Save();
+    Config::OnConfigChanged();
     m_chk_hires_textures->setChecked(true);
   }
   else
   {
     base_extract_dir = File::GetUserPath(D_LOAD_IDX) + "GameBananaMods/" + effective_game_id +
-                       "/" + SanitizeFolderName(mod_name) + "/";
-    install_kind = tr("GameBanana Mod Package");
+                       "/" + sanitized_mod + "/";
+    if (!gci_save_files.empty())
+      install_kind = tr("GameCube Memory Card Save (.gci)");
+    else if (!rom_patch_files.empty())
+      install_kind = tr("ROM / ISO Patch Package (.xdelta / .bps)");
+    else
+      install_kind = tr("GameBanana Mod Package");
   }
 
   File::CreateFullPath(base_extract_dir);
-
-  int extracted_files = 0;
-  if (mz_zip_reader_goto_first_entry(zip_reader) == MZ_OK)
-  {
-    do
-    {
-      mz_zip_file* info = nullptr;
-      if (mz_zip_reader_entry_get_info(zip_reader, &info) != MZ_OK || !info || !info->filename)
-        continue;
-
-      std::string rel_path(info->filename);
-      std::ranges::replace(rel_path, '\\', '/');
-      if (rel_path.empty() || rel_path.find("..") != std::string::npos)
-        continue;
-
-      while (!rel_path.empty() && rel_path.front() == '/')
-        rel_path.erase(rel_path.begin());
-
-      const std::string out_path = base_extract_dir + rel_path;
-      if (mz_zip_reader_entry_is_dir(zip_reader) == MZ_OK || rel_path.ends_with('/'))
-      {
-        File::CreateFullPath(out_path);
-        continue;
-      }
-
-      std::string parent_dir;
-      if (SplitPath(out_path, &parent_dir, nullptr, nullptr))
-        File::CreateFullPath(parent_dir);
-
-      const size_t uncompressed_size = static_cast<size_t>(info->uncompressed_size);
-      std::vector<u8> buffer(uncompressed_size);
-      if (uncompressed_size > 0 &&
-          !Common::ReadFileFromZip(zip_reader, buffer.data(), uncompressed_size))
-      {
-        continue;
-      }
-
-      File::IOFile out(out_path, "wb");
-      if (out && (uncompressed_size == 0 || out.WriteBytes(buffer.data(), uncompressed_size)))
-        ++extracted_files;
-
-    } while (mz_zip_reader_goto_next_entry(zip_reader) == MZ_OK);
-  }
+  std::filesystem::copy(staging_root, std::filesystem::path(base_extract_dir),
+                        std::filesystem::copy_options::recursive |
+                            std::filesystem::copy_options::overwrite_existing,
+                        ec);
 
   if (out_summary)
   {
-    *out_summary = tr("Installed '%1' as %2 (%3 file(s) extracted).\n\nLocation:\n%4")
+    QString extra_notes;
+    if (!gci_save_files.empty())
+    {
+      extra_notes =
+          tr("\n\nNote: This mod contains a GameCube Memory Card save file (%1), not custom "
+             "textures.\nTo load it in Dolphin: open Tools -> Memory Card Manager, click "
+             "'Import', and select the .gci file from the folder above.")
+              .arg(QString::fromStdString(gci_save_files.front()));
+    }
+    else if (!rom_patch_files.empty())
+    {
+      extra_notes =
+          tr("\n\nNote: This mod is an ISO patch file (%1), not a custom texture pack.\n"
+             "Apply the patch to a copy of your game ISO using DeltaPatcher or xdelta3, then "
+             "boot the patched ISO in Dolphin.")
+              .arg(QString::fromStdString(rom_patch_files.front()));
+    }
+
+    *out_summary = tr("Installed '%1' as %2 (%3 file(s) extracted).\n\nLocation:\n%4%5")
                        .arg(QString::fromStdString(mod_name), install_kind)
                        .arg(extracted_files)
-                       .arg(QString::fromStdString(base_extract_dir));
+                       .arg(QString::fromStdString(base_extract_dir), extra_notes);
   }
   return extracted_files > 0;
 }
@@ -1739,9 +1792,29 @@ void GameBananaDialog::RefreshInstalledMods()
           enabled = false;
           mod_folder.resize(mod_folder.size() - 9);
         }
+        std::string detected_type = "GameBanana Mod";
+        for (const auto& fentry :
+             std::filesystem::recursive_directory_iterator(mod_dir.path(), ec))
+        {
+          if (!fentry.is_regular_file(ec))
+            continue;
+          std::string fname = fentry.path().filename().string();
+          Common::ToLower(&fname);
+          if (fname.ends_with(".gci") || fname.ends_with(".gcs") || fname.ends_with(".sav"))
+          {
+            detected_type = "GC Save (.gci)";
+            break;
+          }
+          if (fname.ends_with(".xdelta") || fname.ends_with(".bps") || fname.ends_with(".ips"))
+          {
+            detected_type = "ISO Patch (.xdelta)";
+            break;
+          }
+        }
+
         InstalledModEntry item;
         item.name = mod_folder;
-        item.type = "GameBanana Mod";
+        item.type = detected_type;
         item.game_id = gid;
         item.path = mod_dir.path().string();
         item.enabled = enabled;
@@ -1781,6 +1854,7 @@ void GameBananaDialog::OnToggleInstalledMod()
         pack.Uninstall(File::GetUserPath(D_LOAD_IDX));
       else
         pack.Install(File::GetUserPath(D_LOAD_IDX));
+      Config::OnConfigChanged();
     }
     RefreshInstalledMods();
     return;
@@ -1805,6 +1879,10 @@ void GameBananaDialog::OnToggleInstalledMod()
       ModalMessageBox::warning(this, tr("Rename Failed"),
                                tr("Could not toggle mod folder state:\n%1")
                                    .arg(QString::fromStdString(ec.message())));
+    }
+    else
+    {
+      Config::OnConfigChanged();
     }
     RefreshInstalledMods();
   }
@@ -1879,6 +1957,7 @@ void GameBananaDialog::OnDeleteInstalledMod()
     std::filesystem::remove_all(entry.path, ec);
   }
 
+  Config::OnConfigChanged();
   RefreshInstalledMods();
 }
 

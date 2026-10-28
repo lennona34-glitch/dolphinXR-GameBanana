@@ -1117,13 +1117,24 @@ void VertexManagerBase::Flush()
         const bool texmgr_has_overrides = texmgr.HasOverrides();
         const bool texmgr_hunter_active = texmgr.IsHunterActive();
         const bool texmgr_active = texmgr_has_overrides || texmgr_hunter_active;
-        // In flat 2D "cinema" mode the game renders mono exactly like a normal flat game. The
-        // Shader/Elements/Textures overrides (and the hunter) only skip or reproject draws for
-        // stereo VR, so running them here would corrupt the flat image and waste work — skip the
-        // whole override/hunter pass when the panel path is active.
+        // In flat 2D "cinema" mode or when no OpenXR session is active, the game renders mono
+        // exactly like a normal flat game. The Shader/Elements/Textures overrides only skip or
+        // reproject draws for stereo VR, so running them without an active stereo VR session
+        // would corrupt or blank out the flat image (e.g. handling=screen with zeroed VR screen
+        // constants). Only run the override pass when stereo VR is actively running, or when the
+        // user explicitly opened one of the interactive hunting debug tools.
         const bool vr_flat_mode = g_ActiveConfig.vr_flat_screen;
-        if (!vr_flat_mode && (hunter_enabled || hunter_has_overrides || hunter_debug_logging ||
-                              elements_runtime_active || texmgr_active))
+        const bool vr_stereo_active = g_ActiveConfig.stereo_mode == StereoMode::OpenXR &&
+                                      !vr_flat_mode
+#ifdef ENABLE_VR
+                                      && VR::g_openxr && VR::g_openxr->IsSessionRunning()
+#endif
+            ;
+        const bool vr_debug_tool_active =
+            hunter_enabled || hunter_debug_logging || elements_popup_open || texmgr_hunter_active;
+        if ((vr_stereo_active &&
+             (hunter_has_overrides || elements_runtime_active || texmgr_active)) ||
+            vr_debug_tool_active)
         {
           const auto& vs = m_current_pipeline_config.vs_uid;
           const auto& ps = m_current_pipeline_config.ps_uid;
@@ -1741,7 +1752,7 @@ void VertexManagerBase::Flush()
         // instead (same as a manual Fullscreen override). Downscaled copies are effect
         // buffers by construction; full-resolution copies qualify only when blended over the
         // scene, so opaque frozen-frame quads (pause-menu backgrounds) stay on the screen.
-        if (g_ActiveConfig.stereo_mode == StereoMode::OpenXR && !vr_flat_mode &&
+        if (vr_stereo_active &&
             g_ActiveConfig.vr_virtual_screen && g_ActiveConfig.vr_auto_native_efb_effects &&
             !hunter_skip && !elements_skip && !texmgr_skip &&
             std::isnan(geometry_shader_manager.vr_stereo_override) &&
