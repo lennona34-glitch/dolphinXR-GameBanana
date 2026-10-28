@@ -582,6 +582,14 @@ void SyncGameIniForRomhack(const std::string& base_game_id, const std::string& n
   const std::string gs_dir = File::GetUserPath(D_GAMESETTINGS_IDX);
   File::CreateFullPath(gs_dir);
 
+  // Remove any stale 3-character prefix override (e.g. GMS.ini) in the user GameSettings folder
+  // so Data/Sys/GameSettings/GMS.ini keeps its required [Video_Hacks] and vanilla C2 hooks
+  // are never forced onto Kuribo/BetterSMS ROM hacks.
+  const std::string prefix3 = base_game_id.substr(0, 3);
+  const std::string user_prefix_ini = gs_dir + prefix3 + ".ini";
+  if (File::Exists(user_prefix_ini))
+    File::Delete(user_prefix_ini);
+
   const std::string base_ini_path = gs_dir + base_game_id + ".ini";
   Common::IniFile local_ini;
   local_ini.Load(base_ini_path);
@@ -590,30 +598,96 @@ void SyncGameIniForRomhack(const std::string& base_game_id, const std::string& n
   auto gecko_codes = Gecko::LoadCodes(default_ini, local_ini);
   auto ar_codes = ActionReplay::LoadCodes(default_ini, local_ini);
 
-  // Mark enabled codes as user_defined so their full hex lines are written to the shared prefix
-  // INI (e.g. GMS.ini) and romhack GameID INI (e.g. GMSE22.ini)
-  for (auto& gc : gecko_codes)
+  // Filter out C2/C3 ASM injection hooks and vanilla 60FPS/Widescreen hooks when syncing to
+  // custom ROM hacks (e.g. BetterSMS / Kuribo mods GMSE11, GMSE12, GMSE22), as BetterSMS has
+  // its own built-in 60 FPS and 16:9 Widescreen engine at the same hook addresses.
+  std::vector<Gecko::GeckoCode> romhack_gecko_codes;
+  for (auto gc : gecko_codes)
   {
+    bool has_c2_hook = false;
+    for (const auto& line : gc.codes)
+    {
+      if ((line.address & 0xFE000000u) == 0xC2000000u)
+      {
+        has_c2_hook = true;
+        break;
+      }
+    }
+    if (has_c2_hook || gc.name.find("60FPS") != std::string::npos ||
+        gc.name.find("60 FPS") != std::string::npos ||
+        gc.name.find("Widescreen") != std::string::npos)
+    {
+      // For Super Mario Sunshine ROM hacks (BetterSMS/Kuribo), substitute the hook-free
+      // Infinite Water RAM write (0424D5CC 38000000) instead of the C2141DD8 branch hook.
+      if (gc.enabled && base_game_id.starts_with("GMS") &&
+          gc.name.find("Infinite Water") != std::string::npos)
+      {
+        Gecko::GeckoCode safe_inf_water;
+        safe_inf_water.name = "Infinite Water";
+        safe_inf_water.creator = "Texthead";
+        safe_inf_water.enabled = true;
+        safe_inf_water.user_defined = true;
+        Gecko::GeckoCode::Code line;
+        line.address = 0x0424D5CCu;
+        line.data = 0x38000000u;
+        line.original_line = "0424D5CC 38000000";
+        safe_inf_water.codes.push_back(line);
+        romhack_gecko_codes.push_back(std::move(safe_inf_water));
+      }
+      continue;
+    }
     if (gc.enabled)
       gc.user_defined = true;
+    romhack_gecko_codes.push_back(std::move(gc));
   }
+
   for (auto& ar : ar_codes)
   {
     if (ar.enabled)
       ar.user_defined = true;
   }
 
-  const std::string prefix3 = base_game_id.substr(0, 3);
-  std::vector<std::string> target_ids = {prefix3};
+  std::vector<std::string> target_ids;
   if (!new_game_id.empty() && new_game_id != base_game_id)
     target_ids.push_back(new_game_id);
+
+  // Also sync any existing custom ROM-hack INIs sharing the same 4-character prefix (e.g. GMSE11, GMSE12, GMSE22)
+  if (base_game_id.size() >= 4)
+  {
+    const std::string prefix4 = base_game_id.substr(0, 4);
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(gs_dir, ec))
+    {
+      if (!entry.is_regular_file(ec))
+        continue;
+      const std::string stem = entry.path().stem().string();
+      if (stem.size() == 6 && stem.starts_with(prefix4) && stem != base_game_id &&
+          std::ranges::find(target_ids, stem) == target_ids.end())
+      {
+        target_ids.push_back(stem);
+      }
+    }
+  }
 
   for (const std::string& tid : target_ids)
   {
     const std::string out_path = gs_dir + tid + ".ini";
     Common::IniFile out_ini;
     out_ini.Load(out_path);
-    Gecko::SaveCodes(out_ini, gecko_codes);
+
+    // Apply recommended ROM-hack stability and Extended Memory settings (BetterSMS / Kuribo)
+    auto* core_sec = out_ini.GetOrCreateSection("Core");
+    core_sec->Set("CPUThread", false);
+    core_sec->Set("SyncGPU", true);
+    core_sec->Set("OverclockEnable", true);
+    core_sec->Set("Overclock", 1.5);
+    core_sec->Set("RAMOverrideEnable", true);
+    core_sec->Set("MEM1Size", "0x02000000");
+
+    auto* enh_sec = out_ini.GetOrCreateSection("Video_Enhancements");
+    enh_sec->Set("EFBScaledCopy", true);
+
+    Gecko::SaveCodes(out_ini, romhack_gecko_codes);
     ActionReplay::SaveCodes(&out_ini, ar_codes);
     out_ini.Save(out_path);
   }

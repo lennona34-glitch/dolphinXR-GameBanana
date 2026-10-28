@@ -9,6 +9,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/EnumFormatter.h"
 #include "Common/Inline.h"
+#include "Common/Logging/Log.h"
 #include "Common/Swap.h"
 #include "VideoCommon/CPMemory.h"
 #include "VideoCommon/VertexLoaderBase.h"
@@ -163,7 +164,8 @@ static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available,
     const u16 base_address = cmd2 & 0xffff;
 
     const u16 stream_size_temp = cmd2 >> 16;
-    ASSERT_MSG(VIDEO, stream_size_temp < 16, "cmd2 = 0x{:08X}", cmd2);
+    if (stream_size_temp >= 16)
+      WARN_LOG_FMT(VIDEO, "GX_LOAD_XF_REG invalid stream_size_temp: cmd2 = 0x{:08X}", cmd2);
     const u8 stream_size = (stream_size_temp & 0xf) + 1;
 
     if (available < u32(5 + stream_size * 4))

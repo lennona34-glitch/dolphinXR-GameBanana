@@ -438,6 +438,12 @@ static bool Subtype_WriteToPointer(const Core::CPUThreadGuard& guard, const ARAd
   const u32 new_addr = addr.GCAddress();
   const u32 ptr = PowerPC::MMU::HostRead<u32>(guard, new_addr);
 
+  // Guard against NULL or invalid pointer dereferences (e.g. during boot/menus/stage transitions
+  // when player/entity pointers like 0x8040E12C are 0x00000000). Writing to 0x00000000 + offset
+  // corrupts low GameCube OS memory and causes GX FIFO / CPU crashes.
+  if (ptr < 0x80000000u || ptr >= 0x82000000u)
+    return true;
+
   LogInfo("Hardware Address: {:08x}", new_addr);
   LogInfo("Size: {:08x}", addr.size);
 
