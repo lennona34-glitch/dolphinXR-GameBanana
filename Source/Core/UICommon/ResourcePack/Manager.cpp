@@ -86,7 +86,7 @@ std::vector<ResourcePack*> GetLowerPriorityPacks(const ResourcePack& pack)
   for (auto it = std::ranges::find(packs, pack) + 1; it != packs.end(); ++it)
   {
     auto& entry = *it;
-    if (!IsInstalled(pack))
+    if (!IsInstalled(entry))
       continue;
 
     list.push_back(&entry);
@@ -138,7 +138,7 @@ ResourcePack* Add(const std::string& path, int offset)
 
 bool Remove(ResourcePack& pack)
 {
-  const auto result = pack.Uninstall(File::GetUserPath(D_USER_IDX));
+  const auto result = pack.Uninstall(File::GetUserPath(D_LOAD_IDX));
 
   if (!result)
     return false;

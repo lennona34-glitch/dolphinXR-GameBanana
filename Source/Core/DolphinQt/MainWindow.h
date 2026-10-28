@@ -31,6 +31,7 @@ class CodeWidget;
 class DiscordHandler;
 class DragEnterEvent;
 class FreeLookWindow;
+class GameBananaDialog;
 class GameList;
 class GBATASInputWindow;
 class GCTASInputWindow;
@@ -184,6 +185,7 @@ private:
   void ShowLogitechMicWindow();
   void ShowMemcardManager();
   void ShowResourcePackManager();
+  void ShowGameBananaDialog(const std::string& game_id = {}, const std::string& game_title = {});
   void ShowCheatsManager();
   void ShowRiivolutionBootWidget(const UICommon::GameFile& game);
 
@@ -291,5 +293,6 @@ private:
   ThreadWidget* m_thread_widget;
   WatchWidget* m_watch_widget;
   CheatsManager* m_cheats_manager{};
+  GameBananaDialog* m_gamebanana_dialog = nullptr;
   QByteArray m_render_widget_geometry;
 };

@@ -1,4 +1,6 @@
-find_package(PkgConfig)
+if(NOT MSVC)
+  find_package(PkgConfig)
+endif()
 
 macro(_internal_message msg)
   if(NOT ${_is_quiet})

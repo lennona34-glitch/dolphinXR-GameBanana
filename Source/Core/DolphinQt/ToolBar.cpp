@@ -130,14 +130,15 @@ void ToolBar::MakeActions()
   m_graphics_action = addAction(tr("Graphics"), this, &ToolBar::GraphicsPressed);
   m_vr_action = addAction(tr("VR"), this, &ToolBar::VRPressed);
   m_controllers_action = addAction(tr("Controllers"), this, &ToolBar::ControllersPressed);
+  m_gamebanana_action = addAction(tr("GameBanana"), this, &ToolBar::GameBananaPressed);
 
   // Ensure every button has about the same width
   std::vector<QWidget*> items;
   for (const auto& action :
-       {m_open_action, m_pause_play_action, m_stop_action, m_stop_action, m_fullscreen_action,
+       {m_open_action, m_refresh_action, m_pause_play_action, m_stop_action, m_fullscreen_action,
         m_screenshot_action, m_config_action, m_graphics_action, m_vr_action, m_controllers_action,
-        m_step_action, m_step_over_action, m_step_out_action, m_skip_action, m_show_pc_action,
-        m_set_pc_action})
+        m_gamebanana_action, m_step_action, m_step_over_action, m_step_out_action, m_skip_action,
+        m_show_pc_action, m_set_pc_action})
   {
     items.emplace_back(widgetForAction(action));
   }
@@ -198,4 +199,9 @@ void ToolBar::UpdateIcons()
   if (vr_icon.isNull())
     vr_icon = Resources::GetThemeIcon("graphics");
   m_vr_action->setIcon(vr_icon);
+
+  QIcon gb_icon = Resources::GetThemeIcon("browse");
+  if (gb_icon.isNull())
+    gb_icon = Resources::GetThemeIcon("config");
+  m_gamebanana_action->setIcon(gb_icon);
 }

@@ -9,6 +9,14 @@
       "buildRoot": "${workspaceRoot}\\Build\\${name}",
       "cmakeCommandArgs": "",
       "variables": [
+        {
+          "name": "ENABLE_VR",
+          "value": "ON"
+        },
+        {
+          "name": "USE_SYSTEM_LIBS",
+          "value": "OFF"
+        }
       ]
     },
     {
@@ -20,6 +28,14 @@
       "buildRoot": "${workspaceRoot}\\Build\\${name}",
       "cmakeCommandArgs": "",
       "variables": [
+        {
+          "name": "ENABLE_VR",
+          "value": "ON"
+        },
+        {
+          "name": "USE_SYSTEM_LIBS",
+          "value": "OFF"
+        }
       ]
     },
     {

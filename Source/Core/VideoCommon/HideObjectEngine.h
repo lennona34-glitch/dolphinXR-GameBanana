@@ -104,7 +104,7 @@ public:
   GetCapturedEntriesForDrawSequences(const std::vector<u32>& draw_sequences) const;
 
   // Called from VertexLoaderManager::RunVertices — returns true if src matches any active code
-  bool ShouldHide(const u8* src) const;
+  bool ShouldHide(const u8* src, size_t available_bytes) const;
   bool HasCodes() const;
 
 private:
@@ -128,7 +128,7 @@ private:
 
   // Thread-safety coordination between UI updates and render-thread checks
   std::atomic<bool> m_updating{false};
-  std::atomic<bool> m_done{true};
+  std::atomic<bool> m_has_codes{false};
 };
 
 }  // namespace HideObjectEngine

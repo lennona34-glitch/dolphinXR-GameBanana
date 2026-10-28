@@ -404,7 +404,7 @@ int RunVertices(int vtx_attr_group, OpcodeDecoder::Primitive primitive, int coun
   if constexpr (!IsPreprocess)
   {
     auto& hide_engine = HideObjectEngine::Engine::GetInstance();
-    if (hide_engine.HasCodes() && hide_engine.ShouldHide(src))
+    if (hide_engine.HasCodes() && hide_engine.ShouldHide(src, static_cast<size_t>(size)))
       return size;
   }
 

@@ -33,6 +33,7 @@ private:
   int GetResourcePackIndex(QTableWidgetItem* item) const;
 
   QPushButton* m_open_directory_button;
+  QPushButton* m_gamebanana_button;
   QPushButton* m_change_button;
   QPushButton* m_remove_button;
   QPushButton* m_refresh_button;

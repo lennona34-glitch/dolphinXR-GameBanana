@@ -78,6 +78,7 @@
     <ClCompile Include="Config\GameConfigEdit.cpp" />
     <ClCompile Include="Config\GameConfigHighlighter.cpp" />
     <ClCompile Include="Config\GameConfigWidget.cpp" />
+    <ClCompile Include="Config\VRConfigWidget.cpp" />
     <ClCompile Include="Config\GamecubeControllersWidget.cpp" />
     <ClCompile Include="Config\GeckoCodeWidget.cpp" />
     <ClCompile Include="Config\Graphics\AdvancedWidget.cpp" />
@@ -110,12 +111,14 @@
     <ClCompile Include="Config\Mapping\HotkeyStatesOther.cpp" />
     <ClCompile Include="Config\Mapping\HotkeyTAS.cpp" />
     <ClCompile Include="Config\Mapping\HotkeyUSBEmu.cpp" />
+    <ClCompile Include="Config\Mapping\HotkeyVR.cpp" />
     <ClCompile Include="Config\Mapping\HotkeyWii.cpp" />
     <ClCompile Include="Config\Mapping\IOWindow.cpp" />
     <ClCompile Include="Config\Mapping\MappingButton.cpp" />
     <ClCompile Include="Config\Mapping\MappingCommon.cpp" />
     <ClCompile Include="Config\Mapping\MappingIndicator.cpp" />
     <ClCompile Include="Config\Mapping\MappingNumeric.cpp" />
+    <ClCompile Include="Config\Mapping\OpenXRWiimoteConfigSessionController.cpp" />
     <ClCompile Include="Config\Mapping\MappingWidget.cpp" />
     <ClCompile Include="Config\Mapping\MappingWindow.cpp" />
     <ClCompile Include="Config\Mapping\WiimoteEmuExtension.cpp" />
@@ -126,6 +129,12 @@
     <ClCompile Include="Config\Mapping\WiimoteEmuMotionControlIMU.cpp" />
     <ClCompile Include="Config\NewPatchDialog.cpp" />
     <ClCompile Include="Config\PatchesWidget.cpp" />
+    <ClCompile Include="Config\HideObjectAddEditDialog.cpp" />
+    <ClCompile Include="Config\HideObjectWidget.cpp" />
+    <ClCompile Include="Config\ShaderOverrideAddEditDialog.cpp" />
+    <ClCompile Include="Config\ShaderOverrideWidget.cpp" />
+    <ClCompile Include="Config\TextureElementOverrideAddEditDialog.cpp" />
+    <ClCompile Include="Config\TextureElementOverrideWidget.cpp" />
     <ClCompile Include="Config\PropertiesDialog.cpp" />
     <ClCompile Include="Config\SettingsWindow.cpp" />
     <ClCompile Include="Config\ToolTipControls\BalloonTip.cpp" />
@@ -147,6 +156,8 @@
     <ClCompile Include="Debugger\BreakpointWidget.cpp" />
     <ClCompile Include="Debugger\CodeViewWidget.cpp" />
     <ClCompile Include="Debugger\CodeWidget.cpp" />
+    <ClCompile Include="Debugger\CullingCodeFinderWidget.cpp" />
+    <ClCompile Include="Debugger\ShaderHunterWidget.cpp" />
     <ClCompile Include="Debugger\EditSymbolDialog.cpp" />
     <ClCompile Include="Debugger\GekkoSyntaxHighlight.cpp" />
     <ClCompile Include="Debugger\JitBlockTableModel.cpp" />
@@ -165,6 +176,7 @@
     <ClCompile Include="EmulatedUSB\WiiSpeakWindow.cpp" />
     <ClCompile Include="FIFO\FIFOAnalyzer.cpp" />
     <ClCompile Include="FIFO\FIFOPlayerWindow.cpp" />
+    <ClCompile Include="GameBananaDialog.cpp" />
     <ClCompile Include="GameList\GameList.cpp" />
     <ClCompile Include="GameList\GameListModel.cpp" />
     <ClCompile Include="GameList\GameTracker.cpp" />
@@ -227,6 +239,7 @@
     <ClCompile Include="Settings\TriforcePane.cpp" />
     <ClCompile Include="Settings\PathPane.cpp" />
     <ClCompile Include="Settings\USBDevicePicker.cpp" />
+    <ClCompile Include="Settings\VRPane.cpp" />
     <ClCompile Include="Settings\WiiPane.cpp" />
     <ClCompile Include="SkylanderPortal\SkylanderModifyDialog.cpp" />
     <ClCompile Include="SkylanderPortal\SkylanderPortalWindow.cpp" />
@@ -314,7 +327,8 @@
     <QtMoc Include="Config\GamecubeControllersWidget.h" />
     <QtMoc Include="Config\GameConfigHighlighter.h" />
     <QtMoc Include="Config\GameConfigWidget.h" />
-    <QtMoc Include="Config\GeckoCodeWidget.h" />
+    <QtMoc Include="Config\VRConfigWidget.h" />
+    <QtMoc Include="Config\GeckoCodeWidget.h" /> />
     <QtMoc Include="Config\Graphics\AdvancedWidget.h" />
     <QtMoc Include="Config\Graphics\EnhancementsWidget.h" />
     <QtMoc Include="Config\Graphics\GeneralWidget.h" />
@@ -345,9 +359,11 @@
     <QtMoc Include="Config\Mapping\HotkeyStatesOther.h" />
     <QtMoc Include="Config\Mapping\HotkeyTAS.h" />
     <QtMoc Include="Config\Mapping\HotkeyUSBEmu.h" />
+    <QtMoc Include="Config\Mapping\HotkeyVR.h" />
     <QtMoc Include="Config\Mapping\HotkeyWii.h" />
     <QtMoc Include="Config\Mapping\IOWindow.h" />
     <QtMoc Include="Config\Mapping\MappingButton.h" />
+    <QtMoc Include="Config\Mapping\OpenXRWiimoteConfigSessionController.h" />
     <QtMoc Include="Config\Mapping\MappingWidget.h" />
     <QtMoc Include="Config\Mapping\MappingWindow.h" />
     <QtMoc Include="Config\Mapping\WiimoteEmuExtension.h" />
@@ -356,6 +372,12 @@
     <QtMoc Include="Config\Mapping\WiimoteEmuGeneral.h" />
     <QtMoc Include="Config\Mapping\WiimoteEmuMotionControl.h" />
     <QtMoc Include="Config\Mapping\WiimoteEmuMotionControlIMU.h" />
+    <QtMoc Include="Config\HideObjectAddEditDialog.h" />
+    <QtMoc Include="Config\HideObjectWidget.h" />
+    <QtMoc Include="Config\ShaderOverrideAddEditDialog.h" />
+    <QtMoc Include="Config\ShaderOverrideWidget.h" />
+    <QtMoc Include="Config\TextureElementOverrideAddEditDialog.h" />
+    <QtMoc Include="Config\TextureElementOverrideWidget.h" />
     <QtMoc Include="Config\PropertiesDialog.h" />
     <QtMoc Include="Config\SettingsWindow.h" />
     <QtMoc Include="Config\ToolTipControls\BalloonTip.h" />
@@ -378,6 +400,8 @@
     <QtMoc Include="Debugger\BreakpointWidget.h" />
     <QtMoc Include="Debugger\CodeViewWidget.h" />
     <QtMoc Include="Debugger\CodeWidget.h" />
+    <QtMoc Include="Debugger\CullingCodeFinderWidget.h" />
+    <QtMoc Include="Debugger\ShaderHunterWidget.h" />
     <QtMoc Include="Debugger\EditSymbolDialog.h" />
     <QtMoc Include="Debugger\GekkoSyntaxHighlight.h" />
     <QtMoc Include="Debugger\JitBlockTableModel.h" />
@@ -395,6 +419,7 @@
     <QtMoc Include="EmulatedUSB\WiiSpeakWindow.h" />
     <QtMoc Include="FIFO\FIFOAnalyzer.h" />
     <QtMoc Include="FIFO\FIFOPlayerWindow.h" />
+    <QtMoc Include="GameBananaDialog.h" />
     <QtMoc Include="GameList\GameList.h" />
     <QtMoc Include="GameList\GameListModel.h" />
     <QtMoc Include="GameList\GameTracker.h" />
@@ -444,6 +469,7 @@
     <QtMoc Include="Settings\PathPane.h" />
     <QtMoc Include="Settings\TriforcePane.h" />
     <QtMoc Include="Settings\USBDevicePicker.h" />
+    <QtMoc Include="Settings\VRPane.h" />
     <QtMoc Include="Settings\WiiPane.h" />
     <QtMoc Include="SkylanderPortal\SkylanderPortalWindow.h" />
     <QtMoc Include="TAS\GCTASInputWindow.h" />

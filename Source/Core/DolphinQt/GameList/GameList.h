@@ -56,6 +56,7 @@ signals:
   void SelectionChanged(std::shared_ptr<const UICommon::GameFile> game_file);
   void OpenGeneralSettings();
   void OpenGraphicsSettings();
+  void OpenGameBananaMods(const std::string& game_id, const std::string& game_title);
 #ifdef USE_RETRO_ACHIEVEMENTS
   void OpenAchievementSettings();
 #endif  // USE_RETRO_ACHIEVEMENTS

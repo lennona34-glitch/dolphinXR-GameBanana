@@ -162,6 +162,7 @@ bool OGLOpenXR::Initialize(GLContext* context)
 
   if (!CreateSwapchains())
   {
+    DestroySwapchains();
     VR::g_openxr.reset();
     return false;
   }

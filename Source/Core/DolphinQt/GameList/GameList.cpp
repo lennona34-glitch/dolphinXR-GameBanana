@@ -428,6 +428,9 @@ void GameList::ShowContextMenu(const QPoint&)
     {
       menu->addAction(tr("&Wiki"), this, &GameList::OpenWiki);
     }
+    menu->addAction(tr("Browse &GameBanana Mods..."), this, [this, game] {
+      emit OpenGameBananaMods(game->GetGameID(), game->GetLongName());
+    });
 
     menu->addSeparator();
 

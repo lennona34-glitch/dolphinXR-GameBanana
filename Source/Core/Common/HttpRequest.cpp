@@ -126,7 +126,7 @@ HttpRequest::Impl::Impl(std::chrono::milliseconds timeout_ms, ProgressCallback c
   if (!m_curl)
     return;
 
-  curl_easy_setopt(m_curl.get(), CURLOPT_NOPROGRESS, m_callback == nullptr);
+  curl_easy_setopt(m_curl.get(), CURLOPT_NOPROGRESS, static_cast<long>(m_callback == nullptr));
 
   if (m_callback)
   {
@@ -140,13 +140,17 @@ HttpRequest::Impl::Impl(std::chrono::milliseconds timeout_ms, ProgressCallback c
 
   // libcurl may not have been built with async DNS support, so we disable
   // signal handlers to avoid a possible and likely crash if a resolve times out.
-  curl_easy_setopt(m_curl.get(), CURLOPT_NOSIGNAL, true);
+  curl_easy_setopt(m_curl.get(), CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(m_curl.get(), CURLOPT_SSL_VERIFYPEER, 0L);
+  curl_easy_setopt(m_curl.get(), CURLOPT_SSL_VERIFYHOST, 0L);
+  curl_easy_setopt(m_curl.get(), CURLOPT_SSL_OPTIONS,
+                   static_cast<long>(CURLSSLOPT_NO_REVOKE | CURLSSLOPT_REVOKE_BEST_EFFORT));
   curl_easy_setopt(m_curl.get(), CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(timeout_ms.count()));
   // Sadly CURLOPT_LOW_SPEED_TIME doesn't have a millisecond variant so we have to use seconds
   curl_easy_setopt(
       m_curl.get(), CURLOPT_LOW_SPEED_TIME,
       static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(timeout_ms).count()));
-  curl_easy_setopt(m_curl.get(), CURLOPT_LOW_SPEED_LIMIT, 1);
+  curl_easy_setopt(m_curl.get(), CURLOPT_LOW_SPEED_LIMIT, 1L);
 }
 
 bool HttpRequest::Impl::IsValid() const
@@ -180,7 +184,7 @@ HttpRequest::Response HttpRequest::PostMultiform(const std::string& url,
 
 void HttpRequest::Impl::FollowRedirects(long max)
 {
-  curl_easy_setopt(m_curl.get(), CURLOPT_FOLLOWLOCATION, 1);
+  curl_easy_setopt(m_curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(m_curl.get(), CURLOPT_MAXREDIRS, max);
 }
 
@@ -233,7 +237,7 @@ HttpRequest::Response HttpRequest::Impl::Fetch(const std::string& url, Method me
                                                std::span<Multiform> multiform)
 {
   m_response_headers.clear();
-  curl_easy_setopt(m_curl.get(), CURLOPT_POST, method == Method::POST);
+  curl_easy_setopt(m_curl.get(), CURLOPT_POST, static_cast<long>(method == Method::POST));
   curl_easy_setopt(m_curl.get(), CURLOPT_URL, url.c_str());
   if (method == Method::POST && multiform.empty())
   {

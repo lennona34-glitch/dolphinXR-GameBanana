@@ -95,6 +95,7 @@
 #include "DolphinQt/EmulatedUSB/WiiSpeakWindow.h"
 #include "DolphinQt/FIFO/FIFOPlayerWindow.h"
 #include "DolphinQt/GCMemcardManager.h"
+#include "DolphinQt/GameBananaDialog.h"
 #include "DolphinQt/GameList/GameList.h"
 #include "DolphinQt/Host.h"
 #include "DolphinQt/HotkeyScheduler.h"
@@ -572,6 +573,12 @@ void MainWindow::ConnectMenuBar()
   connect(m_menu_bar, &MenuBar::ShowMemcardManager, this, &MainWindow::ShowMemcardManager);
   connect(m_menu_bar, &MenuBar::ShowResourcePackManager, this,
           &MainWindow::ShowResourcePackManager);
+  connect(m_menu_bar, &MenuBar::ShowGameBananaDialog, this, [this] {
+    if (const auto game = m_game_list->GetSelectedGame())
+      ShowGameBananaDialog(game->GetGameID(), game->GetLongName());
+    else
+      ShowGameBananaDialog();
+  });
   connect(m_menu_bar, &MenuBar::ShowCheatsManager, this, &MainWindow::ShowCheatsManager);
   connect(m_menu_bar, &MenuBar::BootGameCubeIPL, this, &MainWindow::OnBootGameCubeIPL);
   connect(m_menu_bar, &MenuBar::ImportNANDBackup, this, &MainWindow::OnImportNANDBackup);
@@ -711,6 +718,12 @@ void MainWindow::ConnectToolBar()
   connect(m_tool_bar, &ToolBar::ControllersPressed, this, &MainWindow::ShowControllersWindow);
   connect(m_tool_bar, &ToolBar::GraphicsPressed, this, &MainWindow::ShowGraphicsWindow);
   connect(m_tool_bar, &ToolBar::VRPressed, this, &MainWindow::ShowVRWindow);
+  connect(m_tool_bar, &ToolBar::GameBananaPressed, this, [this] {
+    if (const auto game = m_game_list->GetSelectedGame())
+      ShowGameBananaDialog(game->GetGameID(), game->GetLongName());
+    else
+      ShowGameBananaDialog();
+  });
 
   connect(m_tool_bar, &ToolBar::StepPressed, m_code_widget, &CodeWidget::Step);
   connect(m_tool_bar, &ToolBar::StepOverPressed, m_code_widget, &CodeWidget::StepOver);
@@ -729,6 +742,7 @@ void MainWindow::ConnectGameList()
 
   connect(m_game_list, &GameList::OpenGeneralSettings, this, &MainWindow::ShowGeneralWindow);
   connect(m_game_list, &GameList::OpenGraphicsSettings, this, &MainWindow::ShowGraphicsWindow);
+  connect(m_game_list, &GameList::OpenGameBananaMods, this, &MainWindow::ShowGameBananaDialog);
 }
 
 void MainWindow::ConnectRenderWidget()
@@ -2113,6 +2127,33 @@ void MainWindow::ShowResourcePackManager()
   ResourcePackManager manager(this);
 
   manager.exec();
+}
+
+void MainWindow::ShowGameBananaDialog(const std::string& game_id, const std::string& game_title)
+{
+  if (!m_gamebanana_dialog)
+  {
+    m_gamebanana_dialog = new GameBananaDialog(this);
+    InstallHotkeyFilter(m_gamebanana_dialog);
+  }
+
+  std::string target_id = game_id;
+  std::string target_title = game_title;
+  if (target_id.empty() && target_title.empty() && m_game_list)
+  {
+    if (const auto selected = m_game_list->GetSelectedGame())
+    {
+      target_id = selected->GetGameID();
+      target_title = selected->GetName(UICommon::GameFile::Variant::LongAndPossiblyCustom);
+    }
+  }
+
+  if (!target_id.empty() || !target_title.empty())
+    m_gamebanana_dialog->SelectGameByGameID(target_id, target_title);
+
+  m_gamebanana_dialog->show();
+  m_gamebanana_dialog->raise();
+  m_gamebanana_dialog->activateWindow();
 }
 
 void MainWindow::ShowCheatsManager()

@@ -12,6 +12,7 @@
 #include <QUrl>
 
 #include "Common/FileUtil.h"
+#include "DolphinQt/GameBananaDialog.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
 #include "UICommon/ResourcePack/Manager.h"
@@ -35,6 +36,7 @@ void ResourcePackManager::CreateWidgets()
   m_table_widget->setTabKeyNavigation(false);
 
   m_open_directory_button = new NonDefaultQPushButton(tr("Open Directory..."));
+  m_gamebanana_button = new NonDefaultQPushButton(tr("GameBanana Mods..."));
   m_change_button = new NonDefaultQPushButton(tr("Install"));
   m_remove_button = new NonDefaultQPushButton(tr("Remove"));
   m_refresh_button = new NonDefaultQPushButton(tr("Refresh"));
@@ -45,16 +47,16 @@ void ResourcePackManager::CreateWidgets()
 
   connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
 
-  layout->addWidget(m_table_widget, 0, 0, 7, 1);
+  layout->addWidget(m_table_widget, 0, 0, 8, 1);
   layout->addWidget(m_open_directory_button, 0, 1);
-  layout->addWidget(m_change_button, 1, 1);
-  layout->addWidget(m_remove_button, 2, 1);
-  layout->addWidget(m_refresh_button, 3, 1);
-  layout->addWidget(m_priority_up_button, 4, 1);
-  layout->addWidget(m_priority_down_button, 5, 1);
+  layout->addWidget(m_gamebanana_button, 1, 1);
+  layout->addWidget(m_change_button, 2, 1);
+  layout->addWidget(m_remove_button, 3, 1);
+  layout->addWidget(m_refresh_button, 4, 1);
+  layout->addWidget(m_priority_up_button, 5, 1);
+  layout->addWidget(m_priority_down_button, 6, 1);
 
-  layout->addWidget(buttons, 7, 1, Qt::AlignRight);
-  setLayout(layout);
+  layout->addWidget(buttons, 8, 1, Qt::AlignRight);
   setLayout(layout);
 }
 
@@ -62,6 +64,11 @@ void ResourcePackManager::ConnectWidgets()
 {
   connect(m_open_directory_button, &QPushButton::clicked, this,
           &ResourcePackManager::OpenResourcePackDir);
+  connect(m_gamebanana_button, &QPushButton::clicked, this, [this] {
+    GameBananaDialog dlg(this);
+    dlg.exec();
+    Refresh();
+  });
   connect(m_refresh_button, &QPushButton::clicked, this, &ResourcePackManager::Refresh);
   connect(m_change_button, &QPushButton::clicked, this, &ResourcePackManager::Change);
   connect(m_remove_button, &QPushButton::clicked, this, &ResourcePackManager::Remove);

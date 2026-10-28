@@ -619,6 +619,7 @@ bool VulkanOpenXR::Initialize()
   if (!CreateSwapchains())
   {
     ERROR_LOG_FMT(VIDEO, "OpenXR Vulkan: Swapchain creation failed — disabling VR.");
+    DestroySwapchains();
     VR::g_openxr.reset();
     return false;
   }

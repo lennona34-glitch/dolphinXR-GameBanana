@@ -33,6 +33,7 @@ signals:
   void ControllersPressed();
   void GraphicsPressed();
   void VRPressed();
+  void GameBananaPressed();
 
   void StepPressed();
   void StepOverPressed();
@@ -59,6 +60,7 @@ private:
   QAction* m_controllers_action;
   QAction* m_graphics_action;
   QAction* m_vr_action;
+  QAction* m_gamebanana_action;
 
   QAction* m_step_action;
   QAction* m_step_over_action;

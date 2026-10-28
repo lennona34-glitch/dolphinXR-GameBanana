@@ -415,9 +415,11 @@ void Engine::ApplyCodes(const std::vector<HideObject>& codes)
       new_entries.push_back(BuildSkipEntry(entry));
   }
 
+  const bool has_codes = !new_entries.empty();
   {
     std::lock_guard lock(m_mutex);
     m_active_entries = std::move(new_entries);
+    m_has_codes.store(has_codes, std::memory_order_release);
   }
 
   m_updating.store(false, std::memory_order_release);
@@ -539,12 +541,11 @@ void Engine::LoadCodes(const std::string& game_id)
   {
     std::lock_guard lock(m_mutex);
     m_loaded_game_id = game_id;
-  }
-
-  if (!m_active_entries.empty())
-  {
-    INFO_LOG_FMT(VIDEO, "HideObjectEngine: Loaded {} active entries for game {}",
-                 m_active_entries.size(), game_id);
+    if (!m_active_entries.empty())
+    {
+      INFO_LOG_FMT(VIDEO, "HideObjectEngine: Loaded {} active entries for game {}",
+                   m_active_entries.size(), game_id);
+    }
   }
 }
 
@@ -558,16 +559,22 @@ void Engine::LoadCodesIfNeeded(const std::string& game_id)
   LoadCodes(game_id);
 }
 
-bool Engine::ShouldHide(const u8* src) const
+bool Engine::ShouldHide(const u8* src, size_t available_bytes) const
 {
-  if (m_updating.load(std::memory_order_acquire))
+  if (!m_has_codes.load(std::memory_order_acquire) ||
+      m_updating.load(std::memory_order_acquire) || !src)
+  {
     return false;
+  }
 
-  // No lock needed — m_active_entries is only modified under m_updating=true
+  std::lock_guard lock(m_mutex);
   for (const auto& entry : m_active_entries)
   {
-    if (std::memcmp(src, entry.data(), entry.size()) == 0)
+    if (entry.size() <= available_bytes &&
+        std::memcmp(src, entry.data(), entry.size()) == 0)
+    {
       return true;
+    }
   }
 
   return false;
@@ -575,7 +582,7 @@ bool Engine::ShouldHide(const u8* src) const
 
 bool Engine::HasCodes() const
 {
-  return !m_active_entries.empty();
+  return m_has_codes.load(std::memory_order_acquire);
 }
 
 }  // namespace HideObjectEngine

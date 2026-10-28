@@ -295,6 +295,8 @@ add_executable(dolphin-emu
   FIFO/FIFOAnalyzer.h
   FIFO/FIFOPlayerWindow.cpp
   FIFO/FIFOPlayerWindow.h
+  GameBananaDialog.cpp
+  GameBananaDialog.h
   GameList/GameList.cpp
   GameList/GameList.h
   GameList/GameListModel.cpp
@@ -513,7 +515,7 @@ if (MSVC)
   list(TRANSFORM Qt6Widgets_PRIVATE_INCLUDE_DIRS PREPEND "/external:I" OUTPUT_VARIABLE qtWidgetsPriv)
   target_compile_options(dolphin-emu PRIVATE "${qtGui}")
   target_compile_options(dolphin-emu PRIVATE "${qtGuiPriv}")
-  target_compile_options(dolphin-emu PRIVATE "${qtWidgets}")
+  target_compile_options(dolphin-emu PRIVATE "${qtWidgetsPriv}")
 
   # Qt 6.3.0 headers use std::aligned_storage instead of alignas
   target_compile_definitions(dolphin-emu PRIVATE _SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING)

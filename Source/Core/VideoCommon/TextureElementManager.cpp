@@ -533,8 +533,11 @@ void TextureElementManager::LoadOverrides(const std::string& game_id)
 
 void TextureElementManager::LoadOverridesIfNeeded(const std::string& game_id)
 {
-  if (game_id == m_loaded_game_id)
-    return;
+  {
+    std::lock_guard lock(m_mutex);
+    if (game_id == m_loaded_game_id)
+      return;
+  }
   LoadOverrides(game_id);
 }
 
@@ -575,6 +578,10 @@ TextureElementManager::FindFirstMatchingHandling(u64 texture_hash) const
 
 void TextureElementManager::RegisterFlagsForTextures(const std::array<u64, 8>& bound) const
 {
+  if (!m_has_overrides.load(std::memory_order_relaxed))
+    return;
+
+  std::lock_guard lock(m_mutex);
   for (const FlagRule& rule : m_flag_rules)
   {
     if (!rule.condition_flag.empty())
@@ -600,6 +607,10 @@ void TextureElementManager::RegisterFlagsForTextures(const std::array<u64, 8>& b
 
 bool TextureElementManager::ShouldSkipByTexture(const std::array<u64, 8>& bound) const
 {
+  if (!m_has_overrides.load(std::memory_order_relaxed))
+    return false;
+
+  std::lock_guard lock(m_mutex);
   if (m_texture_handling.empty())
     return false;
 
@@ -619,6 +630,10 @@ TextureElementManager::HandlingType TextureElementManager::GetHandlingForTexture
     float* passthrough_opacity, CameraAnchorParams* anchor,
     ControllerAnchorParams* controller_anchor) const
 {
+  if (!m_has_overrides.load(std::memory_order_relaxed))
+    return HandlingType::Skip;
+
+  std::lock_guard lock(m_mutex);
   if (m_texture_handling.empty())
     return HandlingType::Skip;
 

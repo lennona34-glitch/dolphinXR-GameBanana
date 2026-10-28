@@ -76,6 +76,7 @@ bool D3DOpenXR::Initialize()
 
   if (!CreateSwapchains())
   {
+    DestroySwapchains();
     VR::g_openxr.reset();
     return false;
   }
