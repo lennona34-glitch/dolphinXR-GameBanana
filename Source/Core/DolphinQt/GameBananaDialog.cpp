@@ -154,9 +154,10 @@ constexpr std::array<BuiltinCheatTemplate, 12> s_cheat_templates = {{
     {"Widescreen 16:9 Aspect Ratio Override", "GALE01", "Super Smash Bros. Melee", "Gecko", "Dan Salvato / Achilles",
      "True 16:9 widescreen camera frustum adjustment for Melee (great for VR & modern displays).",
      "043B97E8 3FE38E39"},
-    {"60 FPS Gameplay Mode", "GMSE01", "Super Mario Sunshine", "Gecko", "masterotaku / Pahaze",
+    {"60FPS", "GMSE01", "Super Mario Sunshine", "Gecko", "gamemasterplc",
      "Doubles Super Mario Sunshine framerate from 30 FPS to 60 FPS.",
-     "042F9844 60000000\n044167B8 3F800000\n0240D00A 00000001"},
+     "044167B8 3F800000\n042FCB24 60000000\n04414904 3CA3D70A\nC20066EC 00000002\n"
+     "C2C28028 EC2105B2\nFEC00890 00000000"},
     {"Widescreen 16:9 HUD & Frustum Fix", "GMSE01", "Super Mario Sunshine", "Gecko", "Gamemasterplc",
      "Fixes culling and 2D HUD stretching in 16:9 widescreen / VR.",
      "040290C4 38600001\n04414900 3FA28F5C"},
@@ -268,6 +269,471 @@ std::vector<u8> FetchUrlBytes(Common::HttpRequest& http, const std::string& url,
     return *resp;
   return {};
 }
+
+bool ReadIsoHeaderIdAndTitle(const std::string& iso_path, std::string* out_game_id,
+                             std::string* out_title)
+{
+  File::IOFile f(iso_path, "rb");
+  if (!f)
+    return false;
+
+  std::array<u8, 96> hdr{};
+  if (!f.ReadBytes(hdr.data(), hdr.size()))
+    return false;
+
+  // GameCube magic at 0x1C (0xC2339F3D) or Wii magic at 0x18 (0x5D1C9EA3)
+  const u32 wii_magic =
+      (static_cast<u32>(hdr[0x18]) << 24) | (static_cast<u32>(hdr[0x19]) << 16) |
+      (static_cast<u32>(hdr[0x1A]) << 8) | static_cast<u32>(hdr[0x1B]);
+  const u32 gc_magic =
+      (static_cast<u32>(hdr[0x1C]) << 24) | (static_cast<u32>(hdr[0x1D]) << 16) |
+      (static_cast<u32>(hdr[0x1E]) << 8) | static_cast<u32>(hdr[0x1F]);
+  if (gc_magic != 0xC2339F3Du && wii_magic != 0x5D1C9EA3u)
+    return false;
+
+  std::string gid(reinterpret_cast<const char*>(hdr.data()), 6);
+  for (char c : gid)
+  {
+    const unsigned char uc = static_cast<unsigned char>(c);
+    if (!std::isalnum(uc))
+      return false;
+  }
+
+  std::string title(reinterpret_cast<const char*>(hdr.data() + 0x20), 64);
+  const size_t nul = title.find('\0');
+  if (nul != std::string::npos)
+    title.resize(nul);
+
+  if (out_game_id)
+    *out_game_id = std::move(gid);
+  if (out_title)
+    *out_title = std::move(title);
+  return true;
+}
+
+std::string FindBaseIsoForGameID(const std::string& target_game_id)
+{
+  const std::string prefix3 =
+      target_game_id.size() >= 3 ? target_game_id.substr(0, 3) : target_game_id;
+  const std::vector<std::string> iso_dirs = Config::GetIsoPaths();
+
+  std::string prefix_match;
+  std::string any_clean_iso;
+
+  auto check_file = [&](const std::filesystem::path& p) -> std::string {
+    std::string ext = p.extension().string();
+    Common::ToLower(&ext);
+    if (ext != ".iso" && ext != ".gcm")
+      return {};
+
+    const std::string filename = p.filename().string();
+    // Skip already-patched custom ISOs (which have "[ModName]" in their filename)
+    if (filename.find('[') != std::string::npos && filename.find(']') != std::string::npos)
+      return {};
+
+    const std::string full_path = p.string();
+    std::string disc_id;
+    if (!ReadIsoHeaderIdAndTitle(full_path, &disc_id, nullptr))
+      return {};
+
+    if (any_clean_iso.empty())
+      any_clean_iso = full_path;
+
+    if (!target_game_id.empty() &&
+        Common::CaseInsensitiveEquals(disc_id, target_game_id))
+    {
+      return full_path;
+    }
+    if (!prefix3.empty() && disc_id.size() >= 3 &&
+        Common::CaseInsensitiveEquals(disc_id.substr(0, 3), prefix3) && prefix_match.empty())
+    {
+      prefix_match = full_path;
+    }
+    return {};
+  };
+
+  std::error_code ec;
+  for (const std::string& dir : iso_dirs)
+  {
+    if (!std::filesystem::exists(dir, ec))
+      continue;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(dir, ec))
+    {
+      if (!entry.is_regular_file(ec))
+        continue;
+      const std::string exact = check_file(entry.path());
+      if (!exact.empty())
+        return exact;
+    }
+  }
+
+  if (!prefix_match.empty())
+    return prefix_match;
+  if (target_game_id.empty() || target_game_id == "GLOBAL")
+    return any_clean_iso;
+  return {};
+}
+
+QString FindXdelta3Executable()
+{
+  const QStringList candidates = {
+      QString::fromStdString(File::GetExeDirectory() + "/xdelta3.exe"),
+      QString::fromStdString(File::GetSysDirectory() + "xdelta3.exe"),
+      QString::fromStdString(File::GetUserPath(D_LOAD_IDX) + "GameBananaDownloads/xdelta3.exe"),
+  };
+  for (const QString& c : candidates)
+  {
+    if (QFileInfo::exists(c))
+      return c;
+  }
+  return QStringLiteral("xdelta3.exe");
+}
+
+bool ApplyIpsPatch(const std::string& base_iso, const std::string& patch_path,
+                   const std::string& out_iso, std::string* out_err)
+{
+  std::vector<u8> patch;
+  {
+    File::IOFile pf(patch_path, "rb");
+    if (!pf)
+    {
+      if (out_err)
+        *out_err = "Could not open .ips patch file.";
+      return false;
+    }
+    patch.resize(static_cast<size_t>(pf.GetSize()));
+    if (!patch.empty() && !pf.ReadBytes(patch.data(), patch.size()))
+      return false;
+  }
+  if (patch.size() < 8 || std::memcmp(patch.data(), "PATCH", 5) != 0)
+  {
+    if (out_err)
+      *out_err = "Invalid .ips header.";
+    return false;
+  }
+
+  if (!File::Copy(base_iso, out_iso))
+  {
+    if (out_err)
+      *out_err = "Could not copy base ISO to output path.";
+    return false;
+  }
+
+  File::IOFile out(out_iso, "r+b");
+  if (!out)
+    return false;
+
+  size_t pos = 5;
+  while (pos + 3 <= patch.size())
+  {
+    if (std::memcmp(patch.data() + pos, "EOF", 3) == 0)
+      return true;
+    if (pos + 5 > patch.size())
+      break;
+    const u64 offset = (static_cast<u64>(patch[pos]) << 16) |
+                       (static_cast<u64>(patch[pos + 1]) << 8) | static_cast<u64>(patch[pos + 2]);
+    const u16 length =
+        (static_cast<u16>(patch[pos + 3]) << 8) | static_cast<u16>(patch[pos + 4]);
+    pos += 5;
+
+    if (!out.Seek(static_cast<s64>(offset), File::SeekOrigin::Begin))
+      return false;
+
+    if (length == 0)
+    {
+      if (pos + 3 > patch.size())
+        return false;
+      const u16 rle_len =
+          (static_cast<u16>(patch[pos]) << 8) | static_cast<u16>(patch[pos + 1]);
+      const u8 val = patch[pos + 2];
+      pos += 3;
+      std::vector<u8> buf(rle_len, val);
+      if (!out.WriteBytes(buf.data(), buf.size()))
+        return false;
+    }
+    else
+    {
+      if (pos + length > patch.size())
+        return false;
+      if (!out.WriteBytes(patch.data() + pos, length))
+        return false;
+      pos += length;
+    }
+  }
+  return true;
+}
+
+bool ApplyBpsPatch(const std::string& base_iso, const std::string& patch_path,
+                   const std::string& out_iso, std::string* out_err)
+{
+  std::vector<u8> patch;
+  {
+    File::IOFile pf(patch_path, "rb");
+    if (!pf)
+      return false;
+    patch.resize(static_cast<size_t>(pf.GetSize()));
+    if (!patch.empty() && !pf.ReadBytes(patch.data(), patch.size()))
+      return false;
+  }
+  if (patch.size() < 16 || std::memcmp(patch.data(), "BPS1", 4) != 0)
+  {
+    if (out_err)
+      *out_err = "Invalid .bps header.";
+    return false;
+  }
+
+  size_t pos = 4;
+  const size_t end_pos = patch.size() - 12;
+  auto decode_varint = [&]() -> u64 {
+    u64 data = 0;
+    u64 shift = 1;
+    while (pos < end_pos)
+    {
+      const u8 x = patch[pos++];
+      data += static_cast<u64>(x & 0x7F) * shift;
+      if (x & 0x80)
+        break;
+      shift <<= 7;
+      data += shift;
+    }
+    return data;
+  };
+
+  const u64 source_size = decode_varint();
+  const u64 target_size = decode_varint();
+  const u64 metadata_size = decode_varint();
+  if (pos + metadata_size > end_pos)
+    return false;
+  pos += static_cast<size_t>(metadata_size);
+
+  std::vector<u8> source(static_cast<size_t>(source_size));
+  {
+    File::IOFile sf(base_iso, "rb");
+    if (!sf || !sf.ReadBytes(source.data(), source.size()))
+    {
+      if (out_err)
+        *out_err = "Base ISO size does not match BPS source size.";
+      return false;
+    }
+  }
+
+  std::vector<u8> target(static_cast<size_t>(target_size), 0);
+  size_t out_offset = 0;
+  s64 source_rel_offset = 0;
+  s64 target_rel_offset = 0;
+
+  while (pos < end_pos && out_offset < target.size())
+  {
+    const u64 action = decode_varint();
+    const u64 length = (action >> 2) + 1;
+    const u64 mode = action & 3;
+    if (out_offset + length > target.size())
+      return false;
+
+    if (mode == 0)  // SourceRead
+    {
+      if (out_offset + length > source.size())
+        return false;
+      std::memcpy(target.data() + out_offset, source.data() + out_offset,
+                  static_cast<size_t>(length));
+      out_offset += static_cast<size_t>(length);
+    }
+    else if (mode == 1)  // TargetRead
+    {
+      if (pos + length > end_pos)
+        return false;
+      std::memcpy(target.data() + out_offset, patch.data() + pos, static_cast<size_t>(length));
+      pos += static_cast<size_t>(length);
+      out_offset += static_cast<size_t>(length);
+    }
+    else if (mode == 2)  // SourceCopy
+    {
+      const u64 offset_data = decode_varint();
+      source_rel_offset += (offset_data & 1 ? -1 : +1) * static_cast<s64>(offset_data >> 1);
+      if (source_rel_offset < 0 ||
+          static_cast<u64>(source_rel_offset) + length > source.size())
+        return false;
+      std::memcpy(target.data() + out_offset, source.data() + source_rel_offset,
+                  static_cast<size_t>(length));
+      source_rel_offset += static_cast<s64>(length);
+      out_offset += static_cast<size_t>(length);
+    }
+    else  // TargetCopy
+    {
+      const u64 offset_data = decode_varint();
+      target_rel_offset += (offset_data & 1 ? -1 : +1) * static_cast<s64>(offset_data >> 1);
+      if (target_rel_offset < 0 ||
+          static_cast<u64>(target_rel_offset) + length > target.size())
+        return false;
+      for (u64 i = 0; i < length; ++i)
+        target[out_offset++] = target[static_cast<size_t>(target_rel_offset++)];
+    }
+  }
+
+  File::IOFile out(out_iso, "wb");
+  return out && out.WriteBytes(target.data(), target.size());
+}
+
+void SyncGameIniForRomhack(const std::string& base_game_id, const std::string& new_game_id)
+{
+  if (base_game_id.size() < 3)
+    return;
+
+  const std::string gs_dir = File::GetUserPath(D_GAMESETTINGS_IDX);
+  File::CreateFullPath(gs_dir);
+
+  const std::string base_ini_path = gs_dir + base_game_id + ".ini";
+  Common::IniFile local_ini;
+  local_ini.Load(base_ini_path);
+  const Common::IniFile default_ini = SConfig::LoadDefaultGameIni(base_game_id, 0);
+
+  auto gecko_codes = Gecko::LoadCodes(default_ini, local_ini);
+  auto ar_codes = ActionReplay::LoadCodes(default_ini, local_ini);
+
+  // Mark enabled codes as user_defined so their full hex lines are written to the shared prefix
+  // INI (e.g. GMS.ini) and romhack GameID INI (e.g. GMSE22.ini)
+  for (auto& gc : gecko_codes)
+  {
+    if (gc.enabled)
+      gc.user_defined = true;
+  }
+  for (auto& ar : ar_codes)
+  {
+    if (ar.enabled)
+      ar.user_defined = true;
+  }
+
+  const std::string prefix3 = base_game_id.substr(0, 3);
+  std::vector<std::string> target_ids = {prefix3};
+  if (!new_game_id.empty() && new_game_id != base_game_id)
+    target_ids.push_back(new_game_id);
+
+  for (const std::string& tid : target_ids)
+  {
+    const std::string out_path = gs_dir + tid + ".ini";
+    Common::IniFile out_ini;
+    out_ini.Load(out_path);
+    Gecko::SaveCodes(out_ini, gecko_codes);
+    ActionReplay::SaveCodes(&out_ini, ar_codes);
+    out_ini.Save(out_path);
+  }
+}
+
+bool ApplyRomPatchToIso(const std::string& patch_path, const std::string& mod_name,
+                        const std::string& target_game_id, std::string* out_iso_path,
+                        QString* out_status)
+{
+  const std::string base_iso = FindBaseIsoForGameID(target_game_id);
+  if (base_iso.empty() || !File::Exists(base_iso))
+  {
+    if (out_status)
+    {
+      *out_status = QObject::tr("Could not automatically locate a clean base ISO for Game ID '%1' "
+                                "in your Dolphin ISO directories.")
+                        .arg(QString::fromStdString(target_game_id.empty() ? "Auto" : target_game_id));
+    }
+    return false;
+  }
+
+  std::string base_disc_id;
+  std::string base_disc_title;
+  ReadIsoHeaderIdAndTitle(base_iso, &base_disc_id, &base_disc_title);
+
+  const QFileInfo base_fi(QString::fromStdString(base_iso));
+  QString clean_base_name = base_fi.completeBaseName();
+  const qsizetype paren_idx = clean_base_name.indexOf(QLatin1Char('('));
+  if (paren_idx > 0)
+    clean_base_name = clean_base_name.left(paren_idx).trimmed();
+  if (clean_base_name.isEmpty())
+    clean_base_name = QString::fromStdString(base_disc_title.empty() ? "Game" : base_disc_title);
+
+  const std::string sanitized_mod = SanitizeFolderName(mod_name);
+  const std::string dest_iso =
+      QString(base_fi.absolutePath() + QStringLiteral("/") + clean_base_name + QStringLiteral(" [") +
+              QString::fromStdString(sanitized_mod) + QStringLiteral("].iso"))
+          .toStdString();
+
+  std::string lower_patch = patch_path;
+  Common::ToLower(&lower_patch);
+
+  bool patched_ok = false;
+  std::string err_str;
+  if (lower_patch.ends_with(".ips"))
+  {
+    patched_ok = ApplyIpsPatch(base_iso, patch_path, dest_iso, &err_str);
+  }
+  else if (lower_patch.ends_with(".bps"))
+  {
+    patched_ok = ApplyBpsPatch(base_iso, patch_path, dest_iso, &err_str);
+  }
+  else
+  {
+    // .xdelta / .vcdiff via xdelta3.exe
+    QProcess xd_proc;
+    QStringList args;
+    args << QStringLiteral("-d") << QStringLiteral("-f") << QStringLiteral("-s")
+         << QString::fromStdString(base_iso) << QString::fromStdString(patch_path)
+         << QString::fromStdString(dest_iso);
+    xd_proc.start(FindXdelta3Executable(), args);
+    if (!xd_proc.waitForFinished(180000) || xd_proc.exitCode() != 0)
+    {
+      const QString stderr_txt = QString::fromUtf8(xd_proc.readAllStandardError()).trimmed();
+      err_str = stderr_txt.isEmpty() ?
+                    "xdelta3 failed to apply the patch to the base ISO." :
+                    stderr_txt.toStdString();
+      File::Delete(dest_iso);
+      if (out_status)
+        *out_status = QString::fromStdString(err_str);
+      return false;
+    }
+    patched_ok = File::Exists(dest_iso) && File::GetSize(dest_iso) > 0;
+  }
+
+  if (!patched_ok)
+  {
+    if (out_status)
+      *out_status = QString::fromStdString(err_str.empty() ? "Failed to patch ISO." : err_str);
+    return false;
+  }
+
+  // Inspect patched ISO header: if internal disc title wasn't customized by the patch, append
+  // the mod name so it is easily distinguishable in Dolphin's Game List Title column.
+  std::string patched_disc_id;
+  std::string patched_disc_title;
+  if (ReadIsoHeaderIdAndTitle(dest_iso, &patched_disc_id, &patched_disc_title))
+  {
+    if (!base_disc_title.empty() && patched_disc_title == base_disc_title)
+    {
+      std::string custom_hdr_title = base_disc_title + " [" + sanitized_mod + "]";
+      if (custom_hdr_title.size() > 63)
+        custom_hdr_title.resize(63);
+      File::IOFile hdr_out(dest_iso, "r+b");
+      if (hdr_out && hdr_out.Seek(0x20, File::SeekOrigin::Begin))
+      {
+        std::array<char, 64> title_buf{};
+        std::memcpy(title_buf.data(), custom_hdr_title.data(), custom_hdr_title.size());
+        hdr_out.WriteBytes(title_buf.data(), title_buf.size());
+      }
+    }
+
+    const std::string effective_base = !base_disc_id.empty() ? base_disc_id : target_game_id;
+    if (!effective_base.empty())
+      SyncGameIniForRomhack(effective_base, patched_disc_id);
+  }
+
+  if (out_iso_path)
+    *out_iso_path = dest_iso;
+  if (out_status)
+  {
+    *out_status =
+        QObject::tr("Automatically patched and built playable Custom ISO:\n%1\n\n"
+                    "(Base ISO: %2)\n"
+                    "The custom ISO has been added to your Dolphin Game List and synced with your "
+                    "enabled cheats (including 60 FPS)!")
+            .arg(QString::fromStdString(dest_iso), QString::fromStdString(base_iso));
+  }
+  return true;
+}
 }  // namespace
 
 GameBananaDialog::GameBananaDialog(QWidget* parent)
@@ -287,12 +753,19 @@ GameBananaDialog::GameBananaDialog(QWidget* parent)
 
 GameBananaDialog::~GameBananaDialog()
 {
+  CancelBackgroundTasks();
+}
+
+void GameBananaDialog::CancelBackgroundTasks()
+{
   if (m_alive)
     m_alive->store(false, std::memory_order_release);
 }
 
 void GameBananaDialog::showEvent(QShowEvent* event)
 {
+  if (!m_alive || !m_alive->load(std::memory_order_acquire))
+    m_alive = std::make_shared<std::atomic<bool>>(true);
   QDialog::showEvent(event);
   if (m_request_serial.load() == 0)
     TriggerSearch(1);
@@ -521,6 +994,7 @@ QWidget* GameBananaDialog::CreateBrowseTab()
   m_download_progress = new QProgressBar(right_group);
   m_download_progress->setRange(0, 100);
   m_download_progress->setValue(0);
+  m_download_progress->setFormat(tr("Not Installed"));
   right_layout->addWidget(m_download_progress);
 
   auto* action_row = new QHBoxLayout();
@@ -590,6 +1064,10 @@ QWidget* GameBananaDialog::CreateInstalledTab()
   auto* btn_row = new QHBoxLayout();
   m_btn_refresh_installed = new NonDefaultQPushButton(tr("Refresh List"), page);
   m_btn_toggle_installed = new NonDefaultQPushButton(tr("Toggle Enable / Disable"), page);
+  m_btn_patch_iso = new NonDefaultQPushButton(tr("Patch && Build Custom ISO"), page);
+  m_btn_patch_iso->setToolTip(
+      tr("Automatically apply this mod's .xdelta / .bps / .ips patch to your clean GameCube/Wii "
+         "ISO and add the rebuilt custom ISO to your Dolphin Game List."));
   m_btn_import_zip = new NonDefaultQPushButton(tr("Import Local Mod (.zip / .7z / .rar)..."), page);
   m_btn_open_mod_dir = new NonDefaultQPushButton(tr("Open Selected Folder"), page);
   m_btn_open_textures_dir = new NonDefaultQPushButton(tr("Open Load/Textures Folder"), page);
@@ -597,6 +1075,7 @@ QWidget* GameBananaDialog::CreateInstalledTab()
 
   btn_row->addWidget(m_btn_refresh_installed);
   btn_row->addWidget(m_btn_toggle_installed);
+  btn_row->addWidget(m_btn_patch_iso);
   btn_row->addWidget(m_btn_import_zip);
   btn_row->addWidget(m_btn_open_mod_dir);
   btn_row->addWidget(m_btn_open_textures_dir);
@@ -615,6 +1094,7 @@ QWidget* GameBananaDialog::CreateCheatsTab()
   auto* top_bar = new QHBoxLayout();
   top_bar->addWidget(new QLabel(tr("Preset Game:"), page));
   m_cheat_game_combo = new QComboBox(page);
+  int sms_idx = -1;
   for (const auto& g : s_curated_games)
   {
     if (std::strlen(g.game_id) == 0)
@@ -623,11 +1103,15 @@ QWidget* GameBananaDialog::CreateCheatsTab()
         QStringLiteral("%1 [%2]").arg(QString::fromUtf8(g.display_name),
                                       QString::fromLatin1(g.game_id)),
         QString::fromLatin1(g.game_id));
+    if (std::strcmp(g.game_id, "GMSE01") == 0)
+      sms_idx = m_cheat_game_combo->count() - 1;
   }
+  if (sms_idx >= 0)
+    m_cheat_game_combo->setCurrentIndex(sms_idx);
   top_bar->addWidget(m_cheat_game_combo);
 
   top_bar->addWidget(new QLabel(tr("Active Game ID (6 chars):"), page));
-  m_cheat_game_id_edit = new QLineEdit(QStringLiteral("GALE01"), page);
+  m_cheat_game_id_edit = new QLineEdit(QStringLiteral("GMSE01"), page);
   m_cheat_game_id_edit->setMaximumWidth(100);
   top_bar->addWidget(m_cheat_game_id_edit);
 
@@ -748,7 +1232,15 @@ void GameBananaDialog::ConnectWidgets()
   // Browse Tab
   connect(m_search_btn, &QPushButton::clicked, this, [this] { TriggerSearch(1); });
   connect(m_search_edit, &QLineEdit::returnPressed, this, [this] { TriggerSearch(1); });
-  connect(m_game_combo, &QComboBox::currentIndexChanged, this, [this](int) { TriggerSearch(1); });
+  connect(m_game_combo, &QComboBox::currentIndexChanged, this, [this](int idx) {
+    if (idx >= 0)
+    {
+      const QString gid = m_game_combo->itemData(idx, Qt::UserRole + 1).toString();
+      if (!gid.isEmpty())
+        m_cheat_game_id_edit->setText(gid);
+    }
+    TriggerSearch(1);
+  });
   connect(m_category_combo, &QComboBox::currentIndexChanged, this,
           [this](int) { TriggerSearch(1); });
   connect(m_sort_combo, &QComboBox::currentIndexChanged, this, [this](int) { TriggerSearch(1); });
@@ -790,6 +1282,8 @@ void GameBananaDialog::ConnectWidgets()
           &GameBananaDialog::RefreshInstalledMods);
   connect(m_btn_toggle_installed, &QPushButton::clicked, this,
           &GameBananaDialog::OnToggleInstalledMod);
+  connect(m_btn_patch_iso, &QPushButton::clicked, this,
+          &GameBananaDialog::OnPatchSelectedModIso);
   connect(m_btn_import_zip, &QPushButton::clicked, this, &GameBananaDialog::OnImportLocalMod);
   connect(m_btn_open_mod_dir, &QPushButton::clicked, this,
           &GameBananaDialog::OnOpenSelectedModFolder);
@@ -832,6 +1326,75 @@ std::string GameBananaDialog::GetSelectedTargetGameID() const
       return gid.toStdString();
   }
   return {};
+}
+
+bool GameBananaDialog::IsModInstalled(const ModItem& mod) const
+{
+  const std::string sanitized_mod = SanitizeFolderName(mod.name);
+  if (sanitized_mod.empty())
+    return false;
+
+  for (const auto& entry : m_installed_mods)
+  {
+    if (QString::fromStdString(entry.name)
+                .compare(QString::fromStdString(sanitized_mod), Qt::CaseInsensitive) == 0 ||
+        QString::fromStdString(entry.name)
+                .compare(QString::fromStdString(mod.name), Qt::CaseInsensitive) == 0)
+    {
+      return true;
+    }
+  }
+
+  const std::string eff_gid =
+      !mod.target_game_id.empty() ? mod.target_game_id : GetSelectedTargetGameID();
+  const std::string gb_dir = File::GetUserPath(D_LOAD_IDX) + "GameBananaMods/" +
+                             (eff_gid.empty() ? "GLOBAL" : eff_gid) + "/" + sanitized_mod;
+  std::error_code ec;
+  if (std::filesystem::exists(gb_dir, ec) || std::filesystem::exists(gb_dir + ".disabled", ec))
+    return true;
+
+  const std::string gfx_dir = File::GetUserPath(D_GRAPHICSMOD_IDX) + sanitized_mod;
+  if (std::filesystem::exists(gfx_dir, ec) || std::filesystem::exists(gfx_dir + ".disabled", ec))
+    return true;
+
+  const std::string rp_zip = File::GetUserPath(D_RESOURCEPACK_IDX) + sanitized_mod + ".zip";
+  if (std::filesystem::exists(rp_zip, ec))
+    return true;
+
+  const std::string bracket_tag = "[" + sanitized_mod + "]";
+  for (const std::string& iso_dir : Config::GetIsoPaths())
+  {
+    if (!std::filesystem::exists(iso_dir, ec))
+      continue;
+    for (const auto& entry : std::filesystem::directory_iterator(iso_dir, ec))
+    {
+      if (!entry.is_regular_file(ec))
+        continue;
+      if (entry.path().filename().string().find(bracket_tag) != std::string::npos)
+        return true;
+    }
+  }
+
+  return false;
+}
+
+void GameBananaDialog::UpdateModProgressState(const ModItem& mod)
+{
+  if (m_is_downloading.load())
+    return;
+
+  if (IsModInstalled(mod))
+  {
+    m_download_progress->setValue(100);
+    m_download_progress->setFormat(tr("Installed (100%)"));
+    m_install_btn->setText(tr("Re-Download && Re-Install Mod"));
+  }
+  else
+  {
+    m_download_progress->setValue(0);
+    m_download_progress->setFormat(tr("Not Installed"));
+    m_install_btn->setText(tr("Download && Install Mod"));
+  }
 }
 
 void GameBananaDialog::TriggerSearch(int page)
@@ -1059,7 +1622,18 @@ void GameBananaDialog::TriggerSearch(int page)
       {
         const auto& m = self->m_mods[i];
         const int row = static_cast<int>(i);
-        self->m_mods_table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(m.name)));
+        const bool installed = self->IsModInstalled(m);
+        const QString display_name =
+            installed ? tr("[Installed] %1").arg(QString::fromStdString(m.name)) :
+                        QString::fromStdString(m.name);
+        auto* name_item = new QTableWidgetItem(display_name);
+        if (installed)
+        {
+          QFont f = name_item->font();
+          f.setBold(true);
+          name_item->setFont(f);
+        }
+        self->m_mods_table->setItem(row, 0, name_item);
         self->m_mods_table->setItem(row, 1,
                                     new QTableWidgetItem(QString::fromStdString(m.category)));
         self->m_mods_table->setItem(row, 2,
@@ -1076,6 +1650,8 @@ void GameBananaDialog::TriggerSearch(int page)
 
       if (!self->m_mods.empty())
         self->m_mods_table->selectRow(0);
+      else
+        self->OnModSelected();
     });
   }).detach();
 }
@@ -1088,11 +1664,18 @@ void GameBananaDialog::OnModSelected()
     m_selected_mod_index = -1;
     m_install_btn->setEnabled(false);
     m_open_browser_btn->setEnabled(false);
+    if (!m_is_downloading.load())
+    {
+      m_download_progress->setValue(0);
+      m_download_progress->setFormat(tr("Not Installed"));
+      m_install_btn->setText(tr("Download && Install Mod"));
+    }
     return;
   }
 
   m_selected_mod_index = row;
   const ModItem& mod = m_mods[static_cast<size_t>(row)];
+  UpdateModProgressState(mod);
 
   m_detail_title->setText(QString::fromStdString(mod.name));
   m_detail_meta->setText(
@@ -1324,6 +1907,7 @@ void GameBananaDialog::OnDownloadAndInstall()
   m_is_downloading.store(true);
   m_install_btn->setEnabled(false);
   m_download_progress->setValue(0);
+  m_download_progress->setFormat(tr("Downloading... %p%"));
   m_status_label->setText(
       tr("Downloading %1...").arg(QString::fromStdString(file_info.filename)));
 
@@ -1346,7 +1930,7 @@ void GameBananaDialog::OnDownloadAndInstall()
             const int pct = static_cast<int>((dlnow * 100) / dltotal);
             QueueOnObject(self.data(), [self, pct]() {
               if (self)
-                self->m_download_progress->setValue(std::clamp(pct, 0, 100));
+                self->m_download_progress->setValue(std::clamp(pct, 0, 95));
             });
           }
           return true;
@@ -1366,6 +1950,12 @@ void GameBananaDialog::OnDownloadAndInstall()
         self->m_is_downloading.store(false);
         self->m_install_btn->setEnabled(true);
         self->m_status_label->setText(tr("Download failed."));
+        if (self->m_selected_mod_index >= 0 &&
+            static_cast<size_t>(self->m_selected_mod_index) < self->m_mods.size())
+        {
+          self->UpdateModProgressState(
+              self->m_mods[static_cast<size_t>(self->m_selected_mod_index)]);
+        }
         ModalMessageBox::warning(self, tr("Download Failed"),
                                  tr("Failed to download the selected mod archive from GameBanana."));
       });
@@ -1391,17 +1981,52 @@ void GameBananaDialog::OnDownloadAndInstall()
       }
     }
 
-    QueueOnObject(self.data(), [self, archive_path, mod_name, target_game_id]() {
+    if (!alive->load(std::memory_order_acquire) || !self)
+      return;
+
+    QueueOnObject(self.data(), [self, mod_name]() {
+      if (!self)
+        return;
+      self->m_download_progress->setValue(96);
+      self->m_download_progress->setFormat(tr("Extracting & Installing..."));
+      self->m_status_label->setText(
+          tr("Extracting '%1' and applying patches (if any)...").arg(QString::fromStdString(mod_name)));
+    });
+
+    // Run extraction, archive cleanup, and automatic ISO patching in this background thread so the
+    // GUI never freezes or shows "Not Responding"!
+    QString summary;
+    const bool ok =
+        self->InstallArchiveFile(archive_path, mod_name, target_game_id, true, &summary);
+
+    if (!alive->load(std::memory_order_acquire) || !self)
+      return;
+
+    QueueOnObject(self.data(), [self, mod_name, ok, summary]() {
       if (!self)
         return;
 
-      self->m_download_progress->setValue(100);
-      QString summary;
-      const bool ok =
-          self->InstallArchiveFile(archive_path, mod_name, target_game_id, &summary);
       self->m_is_downloading.store(false);
       self->m_install_btn->setEnabled(true);
       self->RefreshInstalledMods();
+      Settings::Instance().RefreshGameList();
+
+      if (self->m_selected_mod_index >= 0 &&
+          static_cast<size_t>(self->m_selected_mod_index) < self->m_mods.size())
+      {
+        const auto& current_mod = self->m_mods[static_cast<size_t>(self->m_selected_mod_index)];
+        self->UpdateModProgressState(current_mod);
+        if (auto* item = self->m_mods_table->item(self->m_selected_mod_index, 0))
+        {
+          if (self->IsModInstalled(current_mod))
+          {
+            item->setText(tr("[Installed] %1").arg(QString::fromStdString(current_mod.name)));
+            QFont f = item->font();
+            f.setBold(true);
+            item->setFont(f);
+          }
+        }
+      }
 
       if (ok)
       {
@@ -1420,7 +2045,8 @@ void GameBananaDialog::OnDownloadAndInstall()
 
 bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
                                           const std::string& mod_name,
-                                          const std::string& target_game_id, QString* out_summary)
+                                          const std::string& target_game_id,
+                                          bool delete_source_archive, QString* out_summary)
 {
   const QString qpath = QString::fromStdString(archive_path);
   const std::string effective_game_id = target_game_id.empty() ? "GLOBAL" : target_game_id;
@@ -1509,6 +2135,8 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
           File::CreateFullPath(rp_dir);
           const std::string dest_zip = rp_dir + sanitized_mod + ".zip";
           File::Copy(archive_path, dest_zip);
+          if (delete_source_archive)
+            File::Delete(archive_path);
 
           ResourcePack::ResourcePack* pack = ResourcePack::Add(dest_zip);
           if (pack && pack->Install(File::GetUserPath(D_LOAD_IDX)))
@@ -1516,7 +2144,6 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
             Config::SetBaseOrCurrent(Config::GFX_HIRES_TEXTURES, true);
             Config::Save();
             Config::OnConfigChanged();
-            m_chk_hires_textures->setChecked(true);
             if (out_summary)
             {
               *out_summary =
@@ -1539,7 +2166,7 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
     args << QStringLiteral("-xf") << qpath << QStringLiteral("-C")
          << QString::fromStdString(staging_dir);
     tar_proc.start(QStringLiteral("tar.exe"), args);
-    if (tar_proc.waitForFinished(20000))
+    if (tar_proc.waitForFinished(60000))
     {
       for (const auto& entry : std::filesystem::recursive_directory_iterator(staging_dir, ec))
       {
@@ -1560,6 +2187,8 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
     const std::string filename = QFileInfo(qpath).fileName().toStdString();
     const std::string dest_file = dest_dir + filename;
     File::Copy(archive_path, dest_file);
+    if (delete_source_archive)
+      File::Delete(archive_path);
 
     if (out_summary)
     {
@@ -1571,6 +2200,38 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
     return true;
   }
 
+  // Delete the downloaded archive now that it has been cleanly extracted!
+  if (delete_source_archive)
+    File::Delete(archive_path);
+
+  // Also unpack and delete any nested .zip / .7z archives inside staging_dir (e.g. a .zip containing a .7z)
+  const std::filesystem::path staging_root(staging_dir);
+  std::vector<std::filesystem::path> nested_archives;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(staging_root, ec))
+  {
+    if (!entry.is_regular_file(ec))
+      continue;
+    std::string fname_lower = entry.path().filename().string();
+    Common::ToLower(&fname_lower);
+    if (fname_lower.ends_with(".zip") || fname_lower.ends_with(".7z") ||
+        fname_lower.ends_with(".rar"))
+    {
+      nested_archives.push_back(entry.path());
+    }
+  }
+  for (const auto& nested_path : nested_archives)
+  {
+    QProcess tar_proc;
+    QStringList args;
+    args << QStringLiteral("-xf") << QString::fromStdString(nested_path.string())
+         << QStringLiteral("-C") << QString::fromStdString(nested_path.parent_path().string());
+    tar_proc.start(QStringLiteral("tar.exe"), args);
+    if (tar_proc.waitForFinished(30000) && tar_proc.exitCode() == 0)
+    {
+      std::filesystem::remove(nested_path, ec);
+    }
+  }
+
   // Inspect the extracted files in staging_dir
   bool has_graphics_mod_metadata = false;
   bool has_riivolution_xml = false;
@@ -1580,7 +2241,6 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
   std::vector<std::string> gci_save_files;
   std::vector<std::string> rom_patch_files;
 
-  const std::filesystem::path staging_root(staging_dir);
   for (const auto& entry : std::filesystem::recursive_directory_iterator(staging_root, ec))
   {
     if (!entry.is_regular_file(ec))
@@ -1609,7 +2269,7 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
         fname_lower.ends_with(".ips") || fname_lower.ends_with(".ppf") ||
         fname_lower.ends_with(".pch"))
     {
-      rom_patch_files.push_back(entry.path().filename().string());
+      rom_patch_files.push_back(rel_str);
     }
     if (fname_lower.ends_with(".png") || fname_lower.ends_with(".dds"))
     {
@@ -1643,7 +2303,6 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
     Config::SetBaseOrCurrent(Config::GFX_MODS_ENABLE, true);
     Config::Save();
     Config::OnConfigChanged();
-    m_chk_graphics_mods->setChecked(true);
   }
   else if (has_riivolution_xml)
   {
@@ -1665,7 +2324,6 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
     Config::SetBaseOrCurrent(Config::GFX_HIRES_TEXTURES, true);
     Config::Save();
     Config::OnConfigChanged();
-    m_chk_hires_textures->setChecked(true);
   }
   else
   {
@@ -1685,6 +2343,27 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
                             std::filesystem::copy_options::overwrite_existing,
                         ec);
 
+  // Automatically patch & build a custom ISO when an .xdelta / .bps / .ips patch is installed!
+  QString auto_patch_note;
+  if (!rom_patch_files.empty())
+  {
+    const std::string installed_patch_path = base_extract_dir + rom_patch_files.front();
+    std::string built_iso_path;
+    QString patch_status;
+    if (ApplyRomPatchToIso(installed_patch_path, mod_name, effective_game_id, &built_iso_path,
+                           &patch_status))
+    {
+      auto_patch_note = QStringLiteral("\n\n") + patch_status;
+    }
+    else
+    {
+      auto_patch_note =
+          tr("\n\nAutomatic ISO Patcher Note:\n%1\n(You can also click 'Patch & Build Custom ISO' "
+             "in the Installed Mods tab at any time.)")
+              .arg(patch_status);
+    }
+  }
+
   if (out_summary)
   {
     QString extra_notes;
@@ -1696,13 +2375,9 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
              "'Import', and select the .gci file from the folder above.")
               .arg(QString::fromStdString(gci_save_files.front()));
     }
-    else if (!rom_patch_files.empty())
+    else if (!auto_patch_note.isEmpty())
     {
-      extra_notes =
-          tr("\n\nNote: This mod is an ISO patch file (%1), not a custom texture pack.\n"
-             "Apply the patch to a copy of your game ISO using DeltaPatcher or xdelta3, then "
-             "boot the patched ISO in Dolphin.")
-              .arg(QString::fromStdString(rom_patch_files.front()));
+      extra_notes = auto_patch_note;
     }
 
     *out_summary = tr("Installed '%1' as %2 (%3 file(s) extracted).\n\nLocation:\n%4%5")
@@ -1715,6 +2390,11 @@ bool GameBananaDialog::InstallArchiveFile(const std::string& archive_path,
 
 void GameBananaDialog::RefreshInstalledMods()
 {
+  if (m_chk_hires_textures)
+    m_chk_hires_textures->setChecked(Config::Get(Config::GFX_HIRES_TEXTURES));
+  if (m_chk_graphics_mods)
+    m_chk_graphics_mods->setChecked(Config::Get(Config::GFX_MODS_ENABLE));
+
   m_installed_mods.clear();
 
   // 1. Resource Packs
@@ -1888,6 +2568,81 @@ void GameBananaDialog::OnToggleInstalledMod()
   }
 }
 
+void GameBananaDialog::OnPatchSelectedModIso()
+{
+  const int row = m_installed_table->currentRow();
+  if (row < 0 || static_cast<size_t>(row) >= m_installed_mods.size())
+  {
+    ModalMessageBox::information(
+        this, tr("Select an Installed Patch Mod"),
+        tr("Please select an installed ISO Patch mod (.xdelta / .bps / .ips) from the list first."));
+    return;
+  }
+
+  const InstalledModEntry entry = m_installed_mods[static_cast<size_t>(row)];
+  std::string patch_file_path;
+  std::error_code ec;
+  if (std::filesystem::exists(entry.path, ec) && std::filesystem::is_directory(entry.path, ec))
+  {
+    for (const auto& fentry : std::filesystem::recursive_directory_iterator(entry.path, ec))
+    {
+      if (!fentry.is_regular_file(ec))
+        continue;
+      std::string fname = fentry.path().filename().string();
+      Common::ToLower(&fname);
+      if (fname.ends_with(".xdelta") || fname.ends_with(".bps") || fname.ends_with(".ips"))
+      {
+        patch_file_path = fentry.path().string();
+        break;
+      }
+    }
+  }
+
+  if (patch_file_path.empty())
+  {
+    ModalMessageBox::warning(
+        this, tr("No ROM Patch Found"),
+        tr("The selected mod folder ('%1') does not contain an .xdelta, .bps, or .ips patch file.")
+            .arg(QString::fromStdString(entry.name)));
+    return;
+  }
+
+  m_btn_patch_iso->setEnabled(false);
+  m_btn_patch_iso->setText(tr("Patching ISO..."));
+  QPointer<GameBananaDialog> self(this);
+  std::weak_ptr<std::atomic<bool>> weak_alive = m_alive;
+
+  std::thread([self, weak_alive, patch_file_path, entry]() {
+    auto alive = weak_alive.lock();
+    if (!alive || !alive->load(std::memory_order_acquire))
+      return;
+
+    std::string built_iso;
+    QString status_msg;
+    const bool ok =
+        ApplyRomPatchToIso(patch_file_path, entry.name, entry.game_id, &built_iso, &status_msg);
+
+    if (!alive->load(std::memory_order_acquire) || !self)
+      return;
+
+    QueueOnObject(self.data(), [self, ok, status_msg]() {
+      if (!self)
+        return;
+      self->m_btn_patch_iso->setEnabled(true);
+      self->m_btn_patch_iso->setText(tr("Patch && Build Custom ISO"));
+      if (ok)
+      {
+        Settings::Instance().RefreshGameList();
+        ModalMessageBox::information(self, tr("Custom ISO Built"), status_msg);
+      }
+      else
+      {
+        ModalMessageBox::warning(self, tr("ISO Patching Failed"), status_msg);
+      }
+    });
+  }).detach();
+}
+
 void GameBananaDialog::OnImportLocalMod()
 {
   const QString file = DolphinFileDialog::getOpenFileName(
@@ -1898,9 +2653,10 @@ void GameBananaDialog::OnImportLocalMod()
 
   const std::string mod_name = QFileInfo(file).completeBaseName().toStdString();
   QString summary;
-  if (InstallArchiveFile(file.toStdString(), mod_name, GetSelectedTargetGameID(), &summary))
+  if (InstallArchiveFile(file.toStdString(), mod_name, GetSelectedTargetGameID(), false, &summary))
   {
     RefreshInstalledMods();
+    Settings::Instance().RefreshGameList();
     ModalMessageBox::information(this, tr("Mod Imported"), summary);
   }
   else
@@ -2054,11 +2810,15 @@ void GameBananaDialog::OnSaveToggledExistingCodes()
         static_cast<size_t>(idx) < gecko_codes.size())
     {
       gecko_codes[static_cast<size_t>(idx)].enabled = checked;
+      if (checked)
+        gecko_codes[static_cast<size_t>(idx)].user_defined = true;
     }
     else if (kind == QStringLiteral("AR") && idx >= 0 &&
              static_cast<size_t>(idx) < ar_codes.size())
     {
       ar_codes[static_cast<size_t>(idx)].enabled = checked;
+      if (checked)
+        ar_codes[static_cast<size_t>(idx)].user_defined = true;
     }
   }
 
@@ -2066,16 +2826,31 @@ void GameBananaDialog::OnSaveToggledExistingCodes()
   ActionReplay::SaveCodes(&local_ini, ar_codes);
   local_ini.Save(ini_path);
 
-  if (Core::IsRunning(Core::System::GetInstance()) &&
-      SConfig::GetInstance().GetGameID() == game_id)
+  // Sync enabled codes to shared 3-char prefix INI (e.g. GMS.ini) and any custom romhack Game IDs
+  SyncGameIniForRomhack(game_id, {});
+
+  // Always enable cheats globally when saving cheat states so codes take effect immediately!
+  Config::SetBaseOrCurrent(Config::MAIN_ENABLE_CHEATS, true);
+  Config::Save();
+  m_chk_enable_cheats->setChecked(true);
+
+  if (Core::IsRunning(Core::System::GetInstance()))
   {
-    Gecko::SetActiveCodes(gecko_codes, game_id, SConfig::GetInstance().GetRevision());
-    ActionReplay::ApplyCodes(ar_codes, game_id, SConfig::GetInstance().GetRevision());
+    const std::string running_gid = SConfig::GetInstance().GetGameID();
+    if (running_gid == game_id ||
+        (running_gid.size() >= 3 && game_id.size() >= 3 &&
+         running_gid.substr(0, 3) == game_id.substr(0, 3)))
+    {
+      Gecko::SetActiveCodes(gecko_codes, running_gid, SConfig::GetInstance().GetRevision());
+      ActionReplay::ApplyCodes(ar_codes, running_gid, SConfig::GetInstance().GetRevision());
+    }
   }
 
   ModalMessageBox::information(
       this, tr("Cheats Updated"),
-      tr("Saved updated cheat states to:\n%1").arg(QString::fromStdString(ini_path)));
+      tr("Saved updated cheat states to:\n%1\n\nGlobal Cheats (MAIN_ENABLE_CHEATS) are enabled "
+         "and synced across custom ROM hacks.")
+          .arg(QString::fromStdString(ini_path)));
 }
 
 void GameBananaDialog::OnAppendQuickPatch()
@@ -2170,13 +2945,24 @@ void GameBananaDialog::OnSaveNewCheatCode()
     else
       gecko_codes.push_back(std::move(new_code));
 
+    for (auto& gc : gecko_codes)
+    {
+      if (gc.enabled)
+        gc.user_defined = true;
+    }
+
     Gecko::SaveCodes(local_ini, gecko_codes);
     local_ini.Save(ini_path);
 
-    if (Core::IsRunning(Core::System::GetInstance()) &&
-        SConfig::GetInstance().GetGameID() == game_id)
+    if (Core::IsRunning(Core::System::GetInstance()))
     {
-      Gecko::SetActiveCodes(gecko_codes, game_id, SConfig::GetInstance().GetRevision());
+      const std::string running_gid = SConfig::GetInstance().GetGameID();
+      if (running_gid == game_id ||
+          (running_gid.size() >= 3 && game_id.size() >= 3 &&
+           running_gid.substr(0, 3) == game_id.substr(0, 3)))
+      {
+        Gecko::SetActiveCodes(gecko_codes, running_gid, SConfig::GetInstance().GetRevision());
+      }
     }
   }
   else
@@ -2216,15 +3002,28 @@ void GameBananaDialog::OnSaveNewCheatCode()
     else
       ar_codes.push_back(std::move(new_ar));
 
+    for (auto& ar : ar_codes)
+    {
+      if (ar.enabled)
+        ar.user_defined = true;
+    }
+
     ActionReplay::SaveCodes(&local_ini, ar_codes);
     local_ini.Save(ini_path);
 
-    if (Core::IsRunning(Core::System::GetInstance()) &&
-        SConfig::GetInstance().GetGameID() == game_id)
+    if (Core::IsRunning(Core::System::GetInstance()))
     {
-      ActionReplay::ApplyCodes(ar_codes, game_id, SConfig::GetInstance().GetRevision());
+      const std::string running_gid = SConfig::GetInstance().GetGameID();
+      if (running_gid == game_id ||
+          (running_gid.size() >= 3 && game_id.size() >= 3 &&
+           running_gid.substr(0, 3) == game_id.substr(0, 3)))
+      {
+        ActionReplay::ApplyCodes(ar_codes, running_gid, SConfig::GetInstance().GetRevision());
+      }
     }
   }
+
+  SyncGameIniForRomhack(game_id, {});
 
   Config::SetBaseOrCurrent(Config::MAIN_ENABLE_CHEATS, true);
   Config::Save();
@@ -2233,8 +3032,8 @@ void GameBananaDialog::OnSaveNewCheatCode()
 
   ModalMessageBox::information(
       this, tr("Cheat Code Saved"),
-      tr("Saved and enabled '%1' in:\n%2").arg(QString::fromStdString(code_name),
-                                               QString::fromStdString(ini_path)));
+      tr("Saved and enabled '%1' in:\n%2\n\n(Also synced across custom ROM hacks for this game.)")
+          .arg(QString::fromStdString(code_name), QString::fromStdString(ini_path)));
 }
 
 void GameBananaDialog::OnOpenGameIni()

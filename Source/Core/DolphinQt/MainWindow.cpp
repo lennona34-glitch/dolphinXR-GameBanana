@@ -350,9 +350,30 @@ MainWindow::MainWindow(Core::System& system, std::unique_ptr<BootParameters> boo
 
 MainWindow::~MainWindow()
 {
+  QSettings& settings = Settings::GetQSettings();
+
+  if (!Settings::Instance().IsBatchModeEnabled())
+  {
+    settings.setValue(QStringLiteral("mainwindow/state"), saveState());
+    settings.setValue(QStringLiteral("mainwindow/geometry"), saveGeometry());
+  }
+
+  settings.setValue(QStringLiteral("renderwidget/geometry"), m_render_widget_geometry);
+
+  if (m_gamebanana_dialog)
+  {
+    m_gamebanana_dialog->CancelBackgroundTasks();
+    m_gamebanana_dialog->hide();
+  }
+  hide();
+
   // Shut down NetPlay first to avoid race condition segfault
   Settings::Instance().ResetNetPlayClient();
   Settings::Instance().ResetNetPlayServer();
+#ifdef USE_DISCORD_PRESENCE
+  if (m_netplay_discord)
+    m_netplay_discord->Stop();
+#endif
 
 #ifdef USE_RETRO_ACHIEVEMENTS
   Config::RemoveConfigChangedCallback(m_config_changed_callback_id);
@@ -370,16 +391,6 @@ MainWindow::~MainWindow()
   }
 
   ShutdownControllers();
-
-  QSettings& settings = Settings::GetQSettings();
-
-  if (!Settings::Instance().IsBatchModeEnabled())
-  {
-    settings.setValue(QStringLiteral("mainwindow/state"), saveState());
-    settings.setValue(QStringLiteral("mainwindow/geometry"), saveGeometry());
-  }
-
-  settings.setValue(QStringLiteral("renderwidget/geometry"), m_render_widget_geometry);
 
   Config::Save();
 }
@@ -942,6 +953,11 @@ void MainWindow::OnStopComplete()
   {
     if (m_assembler_widget->ApplicationCloseRequest())
     {
+      if (m_gamebanana_dialog)
+      {
+        m_gamebanana_dialog->CancelBackgroundTasks();
+        m_gamebanana_dialog->hide();
+      }
       QGuiApplication::exit(0);
     }
     else
@@ -1794,6 +1810,9 @@ bool MainWindow::eventFilter(QObject* object, QEvent* event)
 {
   if (event->type() == QEvent::Close)
   {
+    if (object == this && m_gamebanana_dialog)
+      m_gamebanana_dialog->CancelBackgroundTasks();
+
     if (RequestStop() && object == this)
       m_exit_requested = true;
 

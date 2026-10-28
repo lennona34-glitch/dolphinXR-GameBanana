@@ -574,6 +574,7 @@ void WiimoteScanner::StopThread()
 {
   if (m_scan_thread_running.IsSet())
   {
+    m_scan_thread_running.Clear();
     SetScanMode(WiimoteScanMode::DO_NOT_SCAN);
 
     for (const auto& backend : m_backends)
@@ -581,7 +582,6 @@ void WiimoteScanner::StopThread()
       backend->RequestStopSearching();
     }
 
-    m_scan_thread_running.Clear();
     m_scan_thread.join();
   }
 }
@@ -613,12 +613,12 @@ void WiimoteScanner::PoolThreadFunc()
   // Toggle between 1010 and 0101.
   u8 led_value = 0b1010;
 
-  auto next_time = std::chrono::steady_clock::now();
-
   while (m_scan_thread_running.IsSet())
   {
-    std::this_thread::sleep_until(next_time);
-    next_time += std::chrono::milliseconds(250);
+    for (int i = 0; i < 10 && m_scan_thread_running.IsSet(); ++i)
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    if (!m_scan_thread_running.IsSet())
+      break;
 
     std::lock_guard lk(g_wiimotes_mutex);
 

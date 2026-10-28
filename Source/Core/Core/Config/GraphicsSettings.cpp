@@ -187,7 +187,13 @@ const Info<float> GFX_STEREO_DEPTH_PERCENTAGE{{System::GFX, "Stereoscopy", "Ster
 
 // Graphics.VR
 
-const Info<bool> GFX_VR_ENABLE_OPENXR{{System::GFX, "VR", "EnableOpenXR"}, true};
+#if defined(__ANDROID__)
+constexpr bool DEFAULT_VR_ENABLE_OPENXR = true;
+#else
+constexpr bool DEFAULT_VR_ENABLE_OPENXR = false;
+#endif
+const Info<bool> GFX_VR_ENABLE_OPENXR{{System::GFX, "VR", "EnableOpenXR"},
+                                      DEFAULT_VR_ENABLE_OPENXR};
 // When OpenXR is enabled, render the game as a flat mono panel in the VR scene instead of
 // per-eye stereoscopic 3D (the "Launch games in VR" off / cinema path).
 const Info<bool> GFX_VR_FLAT_SCREEN{{System::GFX, "VR", "FlatScreen"}, false};

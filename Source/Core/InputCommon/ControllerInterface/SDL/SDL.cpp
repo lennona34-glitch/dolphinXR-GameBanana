@@ -152,7 +152,7 @@ InputBackend::InputBackend(ControllerInterface* controller_interface)
   // It also works around a possibly related random hang on a IDirectInputDevice8_Acquire
   //  call within SDL.
   if (Config::Get(Config::MAIN_SDL_HINT_JOYSTICK_DIRECTINPUT) == "")
-    Config::SetBase(Config::MAIN_SDL_HINT_JOYSTICK_DIRECTINPUT, "1");
+    Config::SetBase(Config::MAIN_SDL_HINT_JOYSTICK_DIRECTINPUT, "0");
 
   // Pre-populate the default Joy-Con hints so they can be easily changed
   if (Config::Get(Config::MAIN_SDL_HINT_JOYSTICK_HIDAPI_COMBINE_JOY_CONS) == "")

@@ -80,6 +80,7 @@ public:
   explicit GameBananaDialog(QWidget* parent = nullptr);
   ~GameBananaDialog() override;
 
+  void CancelBackgroundTasks();
   void SelectGameByGameID(const std::string& game_id, const std::string& game_title = {});
 
 protected:
@@ -99,12 +100,16 @@ private:
   void FetchModImage(int mod_id, const std::string& url);
   void OnDownloadAndInstall();
   void OnOpenInBrowser();
+  bool IsModInstalled(const ModItem& mod) const;
+  void UpdateModProgressState(const ModItem& mod);
   bool InstallArchiveFile(const std::string& archive_path, const std::string& mod_name,
-                          const std::string& target_game_id, QString* out_summary);
+                          const std::string& target_game_id, bool delete_source_archive,
+                          QString* out_summary);
 
   // Tab 2: Installed Mods, Texture Packs & Resource Packs
   void RefreshInstalledMods();
   void OnToggleInstalledMod();
+  void OnPatchSelectedModIso();
   void OnImportLocalMod();
   void OnOpenSelectedModFolder();
   void OnOpenTexturesFolder();
@@ -162,6 +167,7 @@ private:
   QTableWidget* m_installed_table = nullptr;
   QPushButton* m_btn_refresh_installed = nullptr;
   QPushButton* m_btn_toggle_installed = nullptr;
+  QPushButton* m_btn_patch_iso = nullptr;
   QPushButton* m_btn_import_zip = nullptr;
   QPushButton* m_btn_open_mod_dir = nullptr;
   QPushButton* m_btn_open_textures_dir = nullptr;
