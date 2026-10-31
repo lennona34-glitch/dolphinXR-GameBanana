@@ -147,7 +147,7 @@ struct BuiltinCheatTemplate
   const char* code_lines;
 };
 
-constexpr std::array<BuiltinCheatTemplate, 12> s_cheat_templates = {{
+constexpr std::array<BuiltinCheatTemplate, 13> s_cheat_templates = {{
     {"Unlock All Characters & Stages", "GALE01", "Super Smash Bros. Melee", "Gecko", "Melee Community",
      "Unlocks all 25 characters, all stages, and sound test immediately.",
      "0445BF28 FFFFFFFF\n0445BF2C FFFFFFFF\n0445BF30 FFFFFFFF"},
@@ -158,6 +158,9 @@ constexpr std::array<BuiltinCheatTemplate, 12> s_cheat_templates = {{
      "Doubles Super Mario Sunshine framerate from 30 FPS to 60 FPS.",
      "044167B8 3F800000\n042FCB24 60000000\n04414904 3CA3D70A\nC20066EC 00000002\n"
      "C2C28028 EC2105B2\nFEC00890 00000000"},
+    {"Disable Heat Wave (Fixes slowdown & white noise squares)", "GMSE01", "Super Mario Sunshine", "Gecko", "gamemasterplc",
+     "Disables broken heat-haze post-processing that causes half-speed slowdown and white noise squares at higher resolutions.",
+     "0419F83C 4E800020"},
     {"Widescreen 16:9 HUD & Frustum Fix", "GMSE01", "Super Mario Sunshine", "Gecko", "Gamemasterplc",
      "Fixes culling and 2D HUD stretching in 16:9 widescreen / VR.",
      "040290C4 38600001\n04414900 3FA28F5C"},
@@ -1016,12 +1019,16 @@ QWidget* GameBananaDialog::CreateBrowseTab()
   m_mods_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_mods_table->setAlternatingRowColors(true);
   m_mods_table->verticalHeader()->hide();
+  m_mods_table->horizontalHeader()->setMinimumSectionSize(65);
   m_mods_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_mods_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-  m_mods_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-  m_mods_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+  m_mods_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+  m_mods_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Interactive);
   m_mods_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
   m_mods_table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+  m_mods_table->setColumnWidth(0, 240);
+  m_mods_table->setColumnWidth(2, 170);
+  m_mods_table->setColumnWidth(3, 110);
   left_layout->addWidget(m_mods_table, 1);
 
   m_status_label = new QLabel(tr("Ready to browse GameBanana."), left_widget);
@@ -1084,6 +1091,7 @@ QWidget* GameBananaDialog::CreateBrowseTab()
   splitter->addWidget(right_group);
   splitter->setStretchFactor(0, 3);
   splitter->setStretchFactor(1, 2);
+  splitter->setSizes({680, 420});
 
   layout->addWidget(splitter, 1);
   return page;
@@ -1128,11 +1136,13 @@ QWidget* GameBananaDialog::CreateInstalledTab()
   m_installed_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_installed_table->setAlternatingRowColors(true);
   m_installed_table->verticalHeader()->hide();
+  m_installed_table->horizontalHeader()->setMinimumSectionSize(65);
   m_installed_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-  m_installed_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  m_installed_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
   m_installed_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
   m_installed_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
   m_installed_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+  m_installed_table->setColumnWidth(1, 260);
   layout->addWidget(m_installed_table, 1);
 
   auto* btn_row = new QHBoxLayout();
@@ -1214,10 +1224,13 @@ QWidget* GameBananaDialog::CreateCheatsTab()
   m_templates_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   m_templates_table->setAlternatingRowColors(true);
   m_templates_table->verticalHeader()->hide();
+  m_templates_table->horizontalHeader()->setMinimumSectionSize(65);
   m_templates_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-  m_templates_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  m_templates_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
   m_templates_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
   m_templates_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+  m_templates_table->setColumnWidth(0, 240);
+  m_templates_table->setColumnWidth(1, 160);
   tpl_layout->addWidget(m_templates_table, 1);
 
   m_btn_use_template =
@@ -1296,6 +1309,7 @@ QWidget* GameBananaDialog::CreateCheatsTab()
   splitter->addWidget(right_group);
   splitter->setStretchFactor(0, 3);
   splitter->setStretchFactor(1, 2);
+  splitter->setSizes({680, 420});
 
   layout->addWidget(splitter, 1);
   return page;

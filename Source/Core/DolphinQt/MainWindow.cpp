@@ -650,7 +650,14 @@ void MainWindow::ConnectHotkeys()
           &MainWindow::OnRequestGolfControl);
   connect(m_hotkey_scheduler, &HotkeyScheduler::RefreshGameListHotkey, this,
           &MainWindow::RefreshGameList);
-  connect(m_hotkey_scheduler, &HotkeyScheduler::StopHotkey, this, &MainWindow::RequestStop);
+  connect(m_hotkey_scheduler, &HotkeyScheduler::StopHotkey, this, [this] {
+    if (m_render_widget && m_render_widget->isFullScreen())
+    {
+      FullScreen();
+      return;
+    }
+    RequestStop();
+  });
   connect(m_hotkey_scheduler, &HotkeyScheduler::ResetHotkey, this, &MainWindow::Reset);
   connect(m_hotkey_scheduler, &HotkeyScheduler::ScreenShotHotkey, this, &MainWindow::ScreenShot);
   connect(m_hotkey_scheduler, &HotkeyScheduler::FullScreenHotkey, this, &MainWindow::FullScreen);
@@ -761,6 +768,10 @@ void MainWindow::ConnectRenderWidget()
   m_rendering_to_main = false;
   m_render_widget->hide();
   connect(m_render_widget, &RenderWidget::Closed, this, &MainWindow::ForceStop);
+  connect(m_render_widget, &RenderWidget::EscapePressed, this, [this] {
+    if (m_render_widget->isFullScreen())
+      FullScreen();
+  });
   connect(m_render_widget, &RenderWidget::FocusChanged, this, [this](bool focus) {
     if (m_render_widget->isFullScreen())
       SetFullScreenResolution(focus);
@@ -1342,6 +1353,10 @@ void MainWindow::HideRenderWidget(bool reinit, bool is_exit)
 
     m_render_widget->installEventFilter(this);
     connect(m_render_widget, &RenderWidget::Closed, this, &MainWindow::ForceStop);
+  connect(m_render_widget, &RenderWidget::EscapePressed, this, [this] {
+    if (m_render_widget->isFullScreen())
+      FullScreen();
+  });
     connect(m_render_widget, &RenderWidget::FocusChanged, this, [this](bool focus) {
       if (m_render_widget->isFullScreen())
         SetFullScreenResolution(focus);
